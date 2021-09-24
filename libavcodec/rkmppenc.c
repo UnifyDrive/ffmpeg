@@ -1024,8 +1024,8 @@ static const enum AVPixelFormat rkmpp_enc_avc_pix_fmts[] = {
 #define RKMPP_ENC(NAME, ID, BSFS) \
     RKMPP_ENC_CLASS(NAME) \
     AVCodec ff_##NAME##_rkmpp_encoder = { \
-        .name           = #NAME "_rkmpp", \
-        .long_name      = NULL_IF_CONFIG_SMALL(#NAME " (rkmpp)"), \
+        .name           = #NAME "_rkmppenc", \
+        .long_name      = NULL_IF_CONFIG_SMALL(#NAME " (rkmppenc)"), \
         .type           = AVMEDIA_TYPE_VIDEO, \
         .id             = ID, \
         .priv_data_size = sizeof(RKMPPEncodeContext), \

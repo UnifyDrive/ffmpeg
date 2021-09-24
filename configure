@@ -345,6 +345,7 @@ External library support:
   --enable-omx             enable OpenMAX IL code [no]
   --enable-omx-rpi         enable OpenMAX IL code for Raspberry Pi [no]
   --enable-rkmpp           enable Rockchip Media Process Platform code [no]
+  --enable-rkmppenc        enable Rockchip Media Process Platform code encoder[no]
   --disable-v4l2-m2m       disable V4L2 mem2mem code [autodetect]
   --disable-vaapi          disable Video Acceleration API (mainly Unix/Intel) code [autodetect]
   --disable-vdpau          disable Nvidia Video Decode and Presentation API for Unix code [autodetect]
@@ -1748,6 +1749,7 @@ EXTERNAL_LIBRARY_VERSION3_LIST="
     libvo_amrwbenc
     mbedtls
     rkmpp
+    rkmppenc
 "
 
 EXTERNAL_LIBRARY_GPLV3_LIST="
@@ -3087,6 +3089,7 @@ h264_qsv_decoder_select="h264_mp4toannexb_bsf qsvdec"
 h264_qsv_encoder_select="atsc_a53 qsvenc"
 h264_rkmpp_decoder_deps="rkmpp"
 h264_rkmpp_decoder_select="h264_mp4toannexb_bsf"
+h264_rkmpp_encoder_deps="rkmppenc"
 h264_vaapi_encoder_select="cbs_h264 vaapi_encode"
 h264_v4l2m2m_decoder_deps="v4l2_m2m h264_v4l2_m2m"
 h264_v4l2m2m_decoder_select="h264_mp4toannexb_bsf"
@@ -3103,6 +3106,7 @@ hevc_qsv_decoder_select="hevc_mp4toannexb_bsf qsvdec"
 hevc_qsv_encoder_select="hevcparse qsvenc"
 hevc_rkmpp_decoder_deps="rkmpp"
 hevc_rkmpp_decoder_select="hevc_mp4toannexb_bsf"
+hevc_rkmpp_encoder_deps="rkmppenc"
 hevc_vaapi_encoder_deps="VAEncPictureParameterBufferHEVC"
 hevc_vaapi_encoder_select="cbs_h265 vaapi_encode"
 hevc_v4l2m2m_decoder_deps="v4l2_m2m hevc_v4l2_m2m"
@@ -6533,6 +6537,11 @@ enabled openssl           && { check_pkg_config openssl openssl openssl/ssl.h OP
                                die "ERROR: openssl not found"; }
 enabled pocketsphinx      && require_pkg_config pocketsphinx pocketsphinx pocketsphinx/pocketsphinx.h ps_init
 enabled rkmpp             && { require_pkg_config rkmpp rockchip_mpp  rockchip/rk_mpi.h mpp_create &&
+                               require_pkg_config rockchip_mpp "rockchip_mpp >= 1.3.7" rockchip/rk_mpi.h mpp_create &&
+                               { enabled libdrm ||
+                                 die "ERROR: rkmpp requires --enable-libdrm"; }
+                             }
+enabled rkmppenc             && { require_pkg_config rkmpp rockchip_mpp  rockchip/rk_mpi.h mpp_create &&
                                require_pkg_config rockchip_mpp "rockchip_mpp >= 1.3.7" rockchip/rk_mpi.h mpp_create &&
                                { enabled libdrm ||
                                  die "ERROR: rkmpp requires --enable-libdrm"; }
