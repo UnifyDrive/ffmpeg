@@ -173,7 +173,9 @@ static MppCodingType rkmpp_get_codingtype(AVCodecContext *avctx)
 static MppFrameFormat rkmpp_get_frameformat(enum AVPixelFormat format)
 {
     switch (format) {
-        case AV_PIX_FMT_DRM_PRIME:          return MPP_FMT_YUV420SP;//DRM_FORMAT_NV12;
+        case AV_PIX_FMT_YUV420P:            return MPP_FMT_YUV420P;
+        case AV_PIX_FMT_NV12:               return MPP_FMT_YUV420SP;
+        case AV_PIX_FMT_DRM_PRIME:          return MPP_FMT_YUV420SP;
 #ifdef DRM_FORMAT_NV12_10
         //case AV_PIX_FMT_DRM_PRIME:    return MPP_FMT_YUV420SP_10BIT;//DRM_FORMAT_NV12_10;
 #endif
@@ -244,6 +246,8 @@ static int rkmpp_get_encode_parameters(
     encoder->hor_stride = (MPP_ALIGN(avctx->width, 16));
     encoder->ver_stride = (MPP_ALIGN(avctx->height, 16));
     encoder->fmt = rkmpp_get_frameformat(avctx->pix_fmt);
+    av_log(avctx, AV_LOG_ERROR, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
+        AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
 
     encoder->rc_mode = (RK_S32)(avctx->bit_rate_tolerance != avctx->bit_rate?MPP_ENC_RC_MODE_VBR:MPP_ENC_RC_MODE_CBR);
     encoder->num_frames = 1;
@@ -530,6 +534,67 @@ RET:
 }
 
 
+static int rkmpp_get_encoded_extradata(
+    AVCodecContext *avctx,
+    RKMPPEncoder *encoder)
+{
+    int status = 0;
+    int ret = 0;
+    MppApi *mpi;
+    MppCtx ctx;
+    MppEncCfg cfg;
+    MppPacket packet = NULL;
+
+    mpi = encoder->mpi;
+    ctx = encoder->ctx;
+    cfg = encoder->cfg;
+
+    switch (encoder->type) {
+        case MPP_VIDEO_CodingAVC:
+        case MPP_VIDEO_CodingHEVC:
+            mpp_packet_init_with_buffer(&packet, encoder->pkt_buf);
+            /* NOTE: It is important to clear output packet length!! */
+            mpp_packet_set_length(packet, 0);
+            ret = mpi->control(ctx, MPP_ENC_GET_HDR_SYNC, packet);
+            if (ret) {
+                av_log(avctx, AV_LOG_ERROR, "mpi control enc get extra info failed\n");
+                status = AVERROR_UNKNOWN;
+                goto end_noextradata;
+            } else {
+                /* get and write sps/pps for H.264 */
+
+                void *ptr   = mpp_packet_get_pos(packet);
+                size_t len  = mpp_packet_get_length(packet);
+                //memcpy
+                if (!avctx->extradata && (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER)) {
+                    avctx->extradata = av_mallocz(len + AV_INPUT_BUFFER_PADDING_SIZE);
+                    if (!avctx->extradata) {
+                        status = AVERROR(ENOMEM);
+                        goto end_noextradata;
+                    }
+                    memcpy(avctx->extradata, (uint8_t *)ptr, len);
+                    avctx->extradata_size = len;
+                    av_log(avctx, AV_LOG_ERROR, "[zspace] sps/pps/vps size:%d\n", avctx->extradata_size);
+                    for(int i = 0; i < avctx->extradata_size; i++){
+                        av_log(avctx, AV_LOG_ERROR, "[zspace] avctx->extradata[%d] %02x\n", i, avctx->extradata[i]);
+                    }
+                }
+            }
+            mpp_packet_deinit(&packet);
+            packet = NULL;
+            break;
+        default :
+            break;
+    }
+
+end_noextradata:
+    if (packet) {
+        mpp_packet_deinit(&packet);
+    }
+
+    return status;
+}
+
 static int rkmpp_init_encoder(AVCodecContext *avctx)
 {
     RKMPPEncodeContext *rk_context = avctx->priv_data;
@@ -538,7 +603,6 @@ static int rkmpp_init_encoder(AVCodecContext *avctx)
     MppPollType timeout = MPP_POLL_BLOCK;
     int ret = 0;
 
-    avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
     // create a decoder and a ref to it
     encoder = av_mallocz(sizeof(RKMPPEncoder));
     if (!encoder) {
@@ -647,6 +711,13 @@ static int rkmpp_init_encoder(AVCodecContext *avctx)
     if (ret < 0)
         goto fail;
 
+    ret = rkmpp_get_encoded_extradata(avctx, encoder);
+    if (ret) {
+        av_log(avctx, AV_LOG_ERROR, "rkmpp_get_encoded_extradata failed ret %d.\n", ret);
+        ret = AVERROR_UNKNOWN;
+        goto fail;
+    }
+    
     encoder->first_packet = 1;
     return 0;
 fail:
@@ -727,11 +798,17 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     mpi = encoder->mpi;
     ctx = encoder->ctx;
 
-    status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
-    if (status) {
-        av_log(avctx, AV_LOG_ERROR, "read_image_data failed (%d)\n", status);
-        status = AVERROR_UNKNOWN;
-        return status;
+    if (!inframe) {
+        encoder->frm_eos = 1;
+        encoder->eos_reached = 1;
+        av_log(avctx, AV_LOG_ERROR, "[zspace] Meet NUll inframe, set frm_eof = 1\n");
+    }else {
+        status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
+        if (status) {
+            av_log(avctx, AV_LOG_ERROR, "read_image_data failed (%d)\n", status);
+            status = AVERROR_UNKNOWN;
+            return status;
+        }
     }
 
     ret = mpp_frame_init(&rkmppframe);
@@ -747,6 +824,11 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     mpp_frame_set_ver_stride(rkmppframe, encoder->ver_stride);
     mpp_frame_set_fmt(rkmppframe, encoder->fmt);
     mpp_frame_set_eos(rkmppframe, encoder->frm_eos);
+    if (inframe) {
+        mpp_frame_set_pts(rkmppframe, inframe->pts);
+        mpp_frame_set_dts(rkmppframe, inframe->pkt_dts);
+        av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", inframe->pts, inframe->pkt_dts);
+    }
 
     if (encoder->eos_reached) {
         mpp_frame_set_buffer(rkmppframe, NULL);
@@ -822,10 +904,19 @@ static int rkmpp_get_packet(
                 av_log(avctx, AV_LOG_ERROR, "mpp encode get packet failed (%d)\n", ret);
                 return status;
             }
-            memcpy(pkt->data, (uint8_t *)ptr, len);
-            pkt->size = len;
-            pkt->pts = mpp_packet_get_pts(*packet);
-            pkt->dts = mpp_packet_get_dts(*packet);
+            if (encoder->pkt_eos) {
+                memcpy(pkt->data, ((uint8_t *)ptr), len);
+                pkt->size = len;
+                pkt->pts = mpp_packet_get_pts(*packet);
+                pkt->dts = mpp_packet_get_dts(*packet);
+            }else {
+                memcpy(pkt->data, ((uint8_t *)ptr), len);
+                pkt->size = len;
+                pkt->pts = mpp_packet_get_pts(*packet);
+                pkt->dts = mpp_packet_get_dts(*packet);
+            }
+            av_log(avctx, AV_LOG_WARNING, "[zspace] get avpacket size:%d, pts=%lld dts=%lld %02x %02x %02x %02x %02x\n", pkt->size, pkt->pts, pkt->dts,
+                    pkt->data[0], pkt->data[1], pkt->data[2], pkt->data[3], pkt->data[4]);
 
             log_len += snprintf(log_buf + log_len, log_size - log_len,
                                 "encoded frame %-4d", encoder->frame_count);
@@ -861,14 +952,14 @@ static int rkmpp_get_packet(
                                         " qp %d", avg_qp);
             }
 
-            av_log(avctx, AV_LOG_DEBUG, "%p %s\n", ctx, log_buf);
+            av_log(avctx, AV_LOG_WARNING, "%p %s\n", ctx, log_buf);
 
 
             encoder->stream_size += len;
             encoder->frame_count += eoi;
 
             if (encoder->pkt_eos) {
-                av_log(avctx, AV_LOG_DEBUG, "%p found last packet\n", ctx);
+                av_log(avctx, AV_LOG_ERROR, "%p found last packet,encoded %d frames, total size:%lld\n", ctx, encoder->frame_count, encoder->stream_size);
             }
         }
     } while (!eoi);
@@ -897,28 +988,7 @@ static int rkmpp_encode_frame(
     *got_packet = 0;
 
     if (encoder->first_packet) {
-        switch (encoder->type) {
-            case MPP_VIDEO_CodingAVC:
-            case MPP_VIDEO_CodingHEVC:
-                mpp_packet_init_with_buffer(&packet, encoder->pkt_buf);
-                /* NOTE: It is important to clear output packet length!! */
-                mpp_packet_set_length(packet, 0);
-                ret = mpi->control(ctx, MPP_ENC_GET_HDR_SYNC, packet);
-                if (ret) {
-                    av_log(avctx, AV_LOG_ERROR, "mpi control enc get extra info failed\n");
-                    status = AVERROR_UNKNOWN;
-                    goto end_nopkt;
-                } else {
-                    /* get and write sps/pps for H.264 */
-
-                    //void *ptr   = mpp_packet_get_pos(packet);
-                    //size_t len  = mpp_packet_get_length(packet);
-                    
-                }
-                break;
-            default :
-                break;
-        }
+        //do some need work!!!
         encoder->first_packet = 0;
     }
 
@@ -928,7 +998,7 @@ static int rkmpp_encode_frame(
     }
 
     status = rkmpp_get_packet(avctx, encoder, pkt, &packet);
-    if (status) {
+    if (status || encoder->pkt_eos) {
         goto end_nopkt;
     }
 
@@ -1007,8 +1077,8 @@ static const AVOption rkmpp_h264_options[] = {
 
     
 static const enum AVPixelFormat rkmpp_enc_avc_pix_fmts[] = {
-    AV_PIX_FMT_NV12,
     AV_PIX_FMT_YUV420P,
+    AV_PIX_FMT_NV12,
     AV_PIX_FMT_NONE
 };
 
