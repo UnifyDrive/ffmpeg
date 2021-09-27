@@ -125,7 +125,6 @@ typedef struct {
     RK_U32 roi_enable;
 
     // rate control runtime parameter
-
     RK_S32 fps_in_flex;
     RK_S32 fps_in_den;
     RK_S32 fps_in_num;
@@ -140,6 +139,9 @@ typedef struct {
     RK_S32 gop_len;
     RK_S32 vi_len;
 
+    RK_S32 profile;
+    RK_S32 level;
+
     char first_packet;
     char eos_reached;
     AVBufferRef *frames_ref;
@@ -149,6 +151,7 @@ typedef struct {
 typedef struct {
     AVClass *av_class;
     AVBufferRef *encoder_ref;
+
     int64_t profile;
     int64_t level;
     int64_t entropy;
@@ -246,40 +249,36 @@ static int rkmpp_get_encode_parameters(
     encoder->hor_stride = (MPP_ALIGN(avctx->width, 16));
     encoder->ver_stride = (MPP_ALIGN(avctx->height, 16));
     encoder->fmt = rkmpp_get_frameformat(avctx->pix_fmt);
-    av_log(avctx, AV_LOG_ERROR, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
-        AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
 
     encoder->rc_mode = (RK_S32)(avctx->bit_rate_tolerance != avctx->bit_rate?MPP_ENC_RC_MODE_VBR:MPP_ENC_RC_MODE_CBR);
     encoder->num_frames = 1;
     if (encoder->type == MPP_VIDEO_CodingMJPEG && encoder->num_frames == 0) {
         encoder->num_frames = 1;
     }
-
     encoder->bps = (RK_S32) avctx->bit_rate;
-    switch (encoder->rc_mode) {
-        case MPP_ENC_RC_MODE_CBR:
-            encoder->bps_min = encoder->bps * 15 / 16;
-            encoder->bps_max = encoder->bps * 17 / 16;
-            break;
-        case MPP_ENC_RC_MODE_VBR:
-            encoder->bps_min = encoder->bps * 1 / 2;
-            encoder->bps_max = encoder->bps * 3 / 2;
-            break;
-        default:
-            encoder->bps_min = (RK_S32)(avctx->bit_rate/2);
-            encoder->bps_max = (RK_S32)(avctx->bit_rate*2);
-            break;
-    }
-    encoder->gop_mode = 0;//???
-    encoder->gop_len = avctx->gop_size;
-    encoder->vi_len = 1;//???
-    
+    encoder->bps_max = (RK_S32) avctx->rc_max_rate;
+    encoder->bps_min = (RK_S32) avctx->rc_min_rate;
+
     encoder->fps_in_flex = 0;
     encoder->fps_in_den   = 1;
     encoder->fps_in_num   = avctx->framerate.num;
     encoder->fps_out_flex = 0;
     encoder->fps_out_den  = 1;
     encoder->fps_out_num  = avctx->framerate.num;
+
+    encoder->gop_mode = 0;//???
+    encoder->gop_len = avctx->gop_size>encoder->fps_out_num?avctx->gop_size:0;
+    encoder->vi_len = 1;//???
+
+    encoder->profile = (RK_S32)rk_context->profile;
+    if(encoder->profile != 66 && encoder->profile != 77 && encoder->profile != 100) {
+        encoder->profile = 100;
+    }
+
+    encoder->level = (RK_S32)rk_context->level;
+    if(encoder->level < 10 || encoder->level > 52) {
+        encoder->level = 40;
+    }
 
     // update resource parameter
     switch (encoder->fmt & MPP_FRAME_FMT_MASK) {
@@ -311,6 +310,11 @@ static int rkmpp_get_encode_parameters(
         encoder->header_size = MPP_ALIGN(MPP_ALIGN(encoder->width, 16) * MPP_ALIGN(encoder->height, 16) / 16, SZ_4K);
     else
         encoder->header_size = 0;
+
+    av_log(avctx, AV_LOG_WARNING, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
+        AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
+    av_log(avctx, AV_LOG_WARNING, "[zspace]Get parameters encoder->width=%d,encoder->height=%d, encoder->hor_stride=%d, encoder->ver_stride=%d, encoder->rc_mode=%d, encoder->bps=%d, encoder->gop_len=%d, encoder->profile=%d, encoder->level=%d, encoder->fps_in_num=%d\n", 
+        encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->rc_mode, encoder->bps, encoder->gop_len, encoder->profile, encoder->level, encoder->fps_in_num);
 
     return ret;
 }
@@ -442,21 +446,27 @@ static int rkmpp_setup_encode_parameters(
              * 77  - Main profile
              * 100 - High profile
              */
-            mpp_enc_cfg_set_s32(cfg, "h264:profile", 100);
+            mpp_enc_cfg_set_s32(cfg, "h264:profile", encoder->profile);
             /*
              * H.264 level_idc parameter
              * 10 / 11 / 12 / 13    - qcif@15fps / cif@7.5fps / cif@15fps / cif@30fps
              * 20 / 21 / 22         - cif@30fps / half-D1@@25fps / D1@12.5fps
              * 30 / 31 / 32         - D1@25fps / 720p@30fps / 720p@60fps
-             * 40 / 41 / 42         - 1080p@30fps / 1080p@30fps / 1080p@60fps
+             * 40 / 41 / 42         - 1080p@25fps / 1080p@30fps / 1080p@60fps
              * 50 / 51 / 52         - 4K@30fps
              */
-            mpp_enc_cfg_set_s32(cfg, "h264:level", 40);
+            mpp_enc_cfg_set_s32(cfg, "h264:level", encoder->level);
             mpp_enc_cfg_set_s32(cfg, "h264:cabac_en", 1);
             mpp_enc_cfg_set_s32(cfg, "h264:cabac_idc", 0);
-            mpp_enc_cfg_set_s32(cfg, "h264:trans8x8", 1);
+            if (encoder->profile == 100) {
+                mpp_enc_cfg_set_s32(cfg, "h264:trans8x8", 1);
+            }else {
+                mpp_enc_cfg_set_s32(cfg, "h264:trans8x8", 0);
+            }
         } break;
-        case MPP_VIDEO_CodingHEVC :
+        case MPP_VIDEO_CodingHEVC : {
+            
+        } break;
         case MPP_VIDEO_CodingMJPEG :
         case MPP_VIDEO_CodingVP8 : {
         } break;
@@ -574,9 +584,9 @@ static int rkmpp_get_encoded_extradata(
                     }
                     memcpy(avctx->extradata, (uint8_t *)ptr, len);
                     avctx->extradata_size = len;
-                    av_log(avctx, AV_LOG_ERROR, "[zspace] sps/pps/vps size:%d\n", avctx->extradata_size);
+                    av_log(avctx, AV_LOG_WARNING, "[zspace] sps/pps/vps size:%d\n", avctx->extradata_size);
                     for(int i = 0; i < avctx->extradata_size; i++){
-                        av_log(avctx, AV_LOG_ERROR, "[zspace] avctx->extradata[%d] %02x\n", i, avctx->extradata[i]);
+                        av_log(avctx, AV_LOG_WARNING, "[zspace] avctx->extradata[%d] %02x\n", i, avctx->extradata[i]);
                     }
                 }
             }
@@ -700,6 +710,13 @@ static int rkmpp_init_encoder(AVCodecContext *avctx)
         goto fail;
     }
 
+    ret = rkmpp_get_encoded_extradata(avctx, encoder);
+    if (ret) {
+        av_log(avctx, AV_LOG_ERROR, "rkmpp_get_encoded_extradata failed ret %d.\n", ret);
+        ret = AVERROR_UNKNOWN;
+        goto fail;
+    }
+
     av_log(avctx, AV_LOG_DEBUG, "RKMPP decoder initialized successfully.\n");
 
     encoder->device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_DRM);
@@ -711,13 +728,6 @@ static int rkmpp_init_encoder(AVCodecContext *avctx)
     if (ret < 0)
         goto fail;
 
-    ret = rkmpp_get_encoded_extradata(avctx, encoder);
-    if (ret) {
-        av_log(avctx, AV_LOG_ERROR, "rkmpp_get_encoded_extradata failed ret %d.\n", ret);
-        ret = AVERROR_UNKNOWN;
-        goto fail;
-    }
-    
     encoder->first_packet = 1;
     return 0;
 fail:
@@ -958,7 +968,7 @@ static int rkmpp_get_packet(
             encoder->stream_size += len;
             encoder->frame_count += eoi;
 
-            if (encoder->pkt_eos) {
+            if (encoder->frm_eos && encoder->pkt_eos) {
                 av_log(avctx, AV_LOG_ERROR, "%p found last packet,encoded %d frames, total size:%lld\n", ctx, encoder->frame_count, encoder->stream_size);
             }
         }
@@ -1015,9 +1025,9 @@ end_nopkt:
 
 typedef enum RKMPP_H264Profile {
     RKMPP_H264_PROF_AUTO,
-    RKMPP_H264_PROF_BASELINE,
-    RKMPP_H264_PROF_MAIN,
-    RKMPP_H264_PROF_HIGH,
+    RKMPP_H264_PROF_BASELINE = 66,
+    RKMPP_H264_PROF_MAIN = 77,
+    RKMPP_H264_PROF_HIGH = 100,
     RKMPP_H264_PROF_EXTENDED,
     RKMPP_H264_PROF_COUNT
 } RKMPP_H264Profile;
