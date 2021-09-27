@@ -311,6 +311,7 @@ static int rkmpp_get_encode_parameters(
     else
         encoder->header_size = 0;
 
+    av_log(avctx, AV_LOG_WARNING, "[zspace] timebase.num=%d,timebase.den=%d\n", avctx->time_base.num, avctx->time_base.den);
     av_log(avctx, AV_LOG_WARNING, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
         AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
     av_log(avctx, AV_LOG_WARNING, "[zspace]Get parameters encoder->width=%d,encoder->height=%d, encoder->hor_stride=%d, encoder->ver_stride=%d, encoder->rc_mode=%d, encoder->bps=%d, encoder->gop_len=%d, encoder->profile=%d, encoder->level=%d, encoder->fps_in_num=%d\n", 
@@ -836,8 +837,9 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     mpp_frame_set_eos(rkmppframe, encoder->frm_eos);
     if (inframe) {
         mpp_frame_set_pts(rkmppframe, inframe->pts);
-        mpp_frame_set_dts(rkmppframe, inframe->pkt_dts);
-        av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", inframe->pts, inframe->pkt_dts);
+        //mpp_frame_set_dts(rkmppframe, inframe->pkt_dts);
+        av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", 
+            inframe->pts, inframe->pkt_dts);
     }
 
     if (encoder->eos_reached) {
@@ -923,9 +925,9 @@ static int rkmpp_get_packet(
                 memcpy(pkt->data, ((uint8_t *)ptr), len);
                 pkt->size = len;
                 pkt->pts = mpp_packet_get_pts(*packet);
-                pkt->dts = mpp_packet_get_dts(*packet);
+                pkt->dts = pkt->pts;//mpp_packet_get_dts(*packet);
             }
-            av_log(avctx, AV_LOG_WARNING, "[zspace] get avpacket size:%d, pts=%lld dts=%lld %02x %02x %02x %02x %02x\n", pkt->size, pkt->pts, pkt->dts,
+            av_log(avctx, AV_LOG_WARNING, "[zspace] get avpacket duration=%lld, size:%d, pts=%lld dts=%lld %02x %02x %02x %02x %02x\n", pkt->duration, pkt->size, pkt->pts, pkt->dts,
                     pkt->data[0], pkt->data[1], pkt->data[2], pkt->data[3], pkt->data[4]);
 
             log_len += snprintf(log_buf + log_len, log_size - log_len,
