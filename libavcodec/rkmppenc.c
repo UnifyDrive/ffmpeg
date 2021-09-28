@@ -40,6 +40,7 @@
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixfmt.h"
+#include "libavutil/time.h"
 
 
 #define RECEIVE_PACKET_TIMEOUT   100
@@ -146,6 +147,8 @@ typedef struct {
     char eos_reached;
     AVBufferRef *frames_ref;
     AVBufferRef *device_ref;
+    int64_t timeNow;
+    int64_t timeLast;
 } RKMPPEncoder;
 
 typedef struct {
@@ -553,12 +556,10 @@ static int rkmpp_get_encoded_extradata(
     int ret = 0;
     MppApi *mpi;
     MppCtx ctx;
-    MppEncCfg cfg;
     MppPacket packet = NULL;
 
     mpi = encoder->mpi;
     ctx = encoder->ctx;
-    cfg = encoder->cfg;
 
     switch (encoder->type) {
         case MPP_VIDEO_CodingAVC:
@@ -838,8 +839,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     if (inframe) {
         mpp_frame_set_pts(rkmppframe, inframe->pts);
         //mpp_frame_set_dts(rkmppframe, inframe->pkt_dts);
-        av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", 
-            inframe->pts, inframe->pkt_dts);
+        //av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", inframe->pts, inframe->pkt_dts);
     }
 
     if (encoder->eos_reached) {
@@ -888,6 +888,7 @@ static int rkmpp_get_packet(
     RK_U32 eoi = 1;
     MPP_RET ret = MPP_OK;
     MppMeta meta = NULL;
+    int64_t timeCost = 0;
 
     mpi = encoder->mpi;
     ctx = encoder->ctx;
@@ -927,8 +928,11 @@ static int rkmpp_get_packet(
                 pkt->pts = mpp_packet_get_pts(*packet);
                 pkt->dts = pkt->pts;//mpp_packet_get_dts(*packet);
             }
-            av_log(avctx, AV_LOG_WARNING, "[zspace] get avpacket duration=%lld, size:%d, pts=%lld dts=%lld %02x %02x %02x %02x %02x\n", pkt->duration, pkt->size, pkt->pts, pkt->dts,
+            encoder->timeNow = av_gettime_relative();
+            timeCost = encoder->timeNow - encoder->timeLast;
+            av_log(avctx, AV_LOG_WARNING, "[zspace] get avpacket costTime=%ld, duration=%ld, size:%d, pts=%ld dts=%ld %02x %02x %02x %02x %02x\n", timeCost, pkt->duration, pkt->size, pkt->pts, pkt->dts,
                     pkt->data[0], pkt->data[1], pkt->data[2], pkt->data[3], pkt->data[4]);
+            encoder->timeLast = encoder->timeNow;
 
             log_len += snprintf(log_buf + log_len, log_size - log_len,
                                 "encoded frame %-4d", encoder->frame_count);
@@ -964,7 +968,7 @@ static int rkmpp_get_packet(
                                         " qp %d", avg_qp);
             }
 
-            av_log(avctx, AV_LOG_WARNING, "%p %s\n", ctx, log_buf);
+            //av_log(avctx, AV_LOG_WARNING, "%p %s\n", ctx, log_buf);
 
 
             encoder->stream_size += len;
@@ -990,12 +994,6 @@ static int rkmpp_encode_frame(
     RKMPPEncodeContext *rk_context = avctx->priv_data;
     RKMPPEncoder *encoder = (RKMPPEncoder *)rk_context->encoder_ref->data;
     MppPacket packet = NULL;
-    MPP_RET ret = MPP_OK;
-    MppApi *mpi;
-    MppCtx ctx;
-
-    mpi = encoder->mpi;
-    ctx = encoder->ctx;
 
     *got_packet = 0;
 
