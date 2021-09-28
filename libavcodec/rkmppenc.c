@@ -815,12 +815,14 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
         encoder->eos_reached = 1;
         av_log(avctx, AV_LOG_ERROR, "[zspace] Meet NUll inframe, set frm_eof = 1\n");
     }else {
+        encoder->timeNow = av_gettime_relative();
         status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
         if (status) {
             av_log(avctx, AV_LOG_ERROR, "read_image_data failed (%d)\n", status);
             status = AVERROR_UNKNOWN;
             return status;
         }
+        //av_log(avctx, AV_LOG_WARNING, "[zspace] read_image_data costTime=%ld\n", av_gettime_relative()-encoder->timeNow);
     }
 
     ret = mpp_frame_init(&rkmppframe);
@@ -994,6 +996,7 @@ static int rkmpp_encode_frame(
     RKMPPEncodeContext *rk_context = avctx->priv_data;
     RKMPPEncoder *encoder = (RKMPPEncoder *)rk_context->encoder_ref->data;
     MppPacket packet = NULL;
+    int64_t time_now = 0;
 
     *got_packet = 0;
 
@@ -1002,15 +1005,19 @@ static int rkmpp_encode_frame(
         encoder->first_packet = 0;
     }
 
+    time_now = av_gettime_relative();
     status = rkmpp_send_frame(avctx, encoder, frame, &packet);
     if (status) {
         goto end_nopkt;
     }
+    //av_log(avctx, AV_LOG_WARNING, "[zspace] rkmpp_send_frame costTime=%ld, skip_time=%ld\n", av_gettime_relative()-time_now, time_now-encoder->timeLast);
 
+    time_now = av_gettime_relative();
     status = rkmpp_get_packet(avctx, encoder, pkt, &packet);
     if (status || encoder->pkt_eos) {
         goto end_nopkt;
     }
+    //av_log(avctx, AV_LOG_WARNING, "[zspace] rkmpp_get_packet costTime=%ld\n", av_gettime_relative()-time_now);
 
     *got_packet = 1;
     return 0;
