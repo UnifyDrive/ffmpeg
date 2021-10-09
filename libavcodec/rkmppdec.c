@@ -280,7 +280,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
     RKMPPDecoder *decoder = (RKMPPDecoder *)rk_context->decoder_ref->data;
     int ret;
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     // handle EOF
     if (!avpkt->size) {
         av_log(avctx, AV_LOG_DEBUG, "End of stream.\n");
@@ -310,7 +310,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
     if (ret && ret!=AVERROR(EAGAIN))
         av_log(avctx, AV_LOG_ERROR, "Failed to write data to decoder (code = %d)\n", ret);
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) .\n", __FUNCTION__, __LINE__, ret);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) .\n", __FUNCTION__, __LINE__, ret);
     return ret;
 }
 
@@ -320,7 +320,7 @@ static void rkmpp_release_frame(void *opaque, uint8_t *data)
     AVBufferRef *framecontextref = (AVBufferRef *)opaque;
     RKMPPFrameContext *framecontext = (RKMPPFrameContext *)framecontextref->data;
 
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
     mpp_frame_deinit(&framecontext->frame);
     av_buffer_unref(&framecontext->decoder_ref);
     av_buffer_unref(&framecontextref);
@@ -459,7 +459,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             framecontext = (RKMPPFrameContext *)framecontextref->data;
             framecontext->decoder_ref = av_buffer_ref(rk_context->decoder_ref);
             framecontext->frame = mppframe;
-            av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, (void *)mppframe, (void *)frame);
+            //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, (void *)mppframe, (void *)frame);
 
             frame->data[0]  = (uint8_t *)desc;
             frame->buf[0]   = av_buffer_create((uint8_t *)desc, sizeof(*desc), rkmpp_release_frame,
@@ -513,7 +513,7 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     AVPacket pkt = {0};
     RK_S32 usedslots, freeslots;
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     if (!decoder->eos_reached) {
         // we get the available slots in decoder
         ret = decoder->mpi->control(decoder->ctx, MPP_DEC_GET_STREAM_COUNT, &usedslots);
@@ -526,7 +526,7 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
         if (freeslots > 0) {
             ret = ff_decode_get_packet(avctx, &pkt);
             if (ret < 0 && ret != AVERROR_EOF) {
-                av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Retrun no packet need to decode(%d) .\n", __FUNCTION__, __LINE__, ret);
+                //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Retrun no packet need to decode(%d) .\n", __FUNCTION__, __LINE__, ret);
                 return ret;
             }
 
@@ -545,7 +545,7 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     }
 
     ret = rkmpp_retrieve_frame(avctx, frame);
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) frame(%p) .\n", __FUNCTION__, __LINE__, ret, frame);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) frame(%p) .\n", __FUNCTION__, __LINE__, ret, frame);
 
     return ret;
 }

@@ -823,7 +823,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     AVBufferRef *framecontextref = NULL;
     RKMPPFrameContext *framecontext = NULL;
 
-    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
+    //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
     mpi = encoder->mpi;
     ctx = encoder->ctx;
 
@@ -837,7 +837,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
             framecontextref = (AVBufferRef *) av_buffer_get_opaque(inframe->buf[0]);
             framecontext = (RKMPPFrameContext *)framecontextref->data;
             rkmppframe = framecontext->frame;
-            av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] AV_PIX_FMT_DRM_PRIME(%p).\n", __FUNCTION__, __LINE__, (void *)rkmppframe);
+            //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] AV_PIX_FMT_DRM_PRIME(%p).\n", __FUNCTION__, __LINE__, (void *)rkmppframe);
         }else {
             buf = mpp_buffer_get_ptr(encoder->frm_buf);
             status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
@@ -1031,7 +1031,7 @@ static int rkmpp_encode_frame(
     MppPacket packet = NULL;
     int64_t time_now = 0;
 
-    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
+    //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
     *got_packet = 0;
     if (encoder->first_packet) {
         //do some need work!!!
@@ -1053,7 +1053,7 @@ static int rkmpp_encode_frame(
     //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] rkmpp_get_packet costTime=%ld\n", av_gettime_relative()-time_now);
 
     *got_packet = 1;
-    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] Out get one packet .\n", __FUNCTION__, __LINE__);
+    //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] Out get one packet .\n", __FUNCTION__, __LINE__);
     return 0;
 
 end_nopkt:
