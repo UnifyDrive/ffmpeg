@@ -45,6 +45,13 @@
 
 
 #define RECEIVE_PACKET_TIMEOUT   100
+#define ZSPACE_ENCODER_DEBUG 1
+
+#if ZSPACE_ENCODER_DEBUG
+#define ZSPACE_ENCODER_DEBUG_LEVEL AV_LOG_WARNING
+#else
+#define ZSPACE_ENCODER_DEBUG_LEVEL AV_LOG_INFO
+#endif
 
 //mpp_common.h
 #ifndef MPP_ALIGN
@@ -321,11 +328,11 @@ static int rkmpp_get_encode_parameters(
     else
         encoder->header_size = 0;
 
-    av_log(avctx, AV_LOG_WARNING, "[zspace] timebase.num=%d,timebase.den=%d\n", avctx->time_base.num, avctx->time_base.den);
-    av_log(avctx, AV_LOG_WARNING, "[zspace] avctx->framerate.num=%d,avctx->framerate.den=%d\n", avctx->framerate.num, avctx->framerate.den);
-    av_log(avctx, AV_LOG_WARNING, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] timebase.num=%d,timebase.den=%d\n", avctx->time_base.num, avctx->time_base.den);
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] avctx->framerate.num=%d,avctx->framerate.den=%d\n", avctx->framerate.num, avctx->framerate.den);
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
         AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
-    av_log(avctx, AV_LOG_WARNING, "[zspace]Get parameters encoder->width=%d,encoder->height=%d, encoder->hor_stride=%d, encoder->ver_stride=%d, encoder->rc_mode=%d, encoder->bps=%d, encoder->gop_len=%d, encoder->profile=%d, encoder->level=%d, encoder->fps_in_num=%d\n", 
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace]Get parameters encoder->width=%d,encoder->height=%d, encoder->hor_stride=%d, encoder->ver_stride=%d, encoder->rc_mode=%d, encoder->bps=%d, encoder->gop_len=%d, encoder->profile=%d, encoder->level=%d, encoder->fps_in_num=%d\n", 
         encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->rc_mode, encoder->bps, encoder->gop_len, encoder->profile, encoder->level, encoder->fps_in_num);
 
     return ret;
@@ -594,9 +601,9 @@ static int rkmpp_get_encoded_extradata(
                     }
                     memcpy(avctx->extradata, (uint8_t *)ptr, len);
                     avctx->extradata_size = len;
-                    av_log(avctx, AV_LOG_WARNING, "[zspace] sps/pps/vps size:%d\n", avctx->extradata_size);
+                    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] sps/pps/vps size:%d\n", avctx->extradata_size);
                     for(int i = 0; i < avctx->extradata_size; i++){
-                        av_log(avctx, AV_LOG_WARNING, "[zspace] avctx->extradata[%d] %02x\n", i, avctx->extradata[i]);
+                        av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] avctx->extradata[%d] %02x\n", i, avctx->extradata[i]);
                     }
                 }
             }
@@ -816,7 +823,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     AVBufferRef *framecontextref = NULL;
     RKMPPFrameContext *framecontext = NULL;
 
-    av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
     mpi = encoder->mpi;
     ctx = encoder->ctx;
 
@@ -830,7 +837,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
             framecontextref = (AVBufferRef *) av_buffer_get_opaque(inframe->buf[0]);
             framecontext = (RKMPPFrameContext *)framecontextref->data;
             rkmppframe = framecontext->frame;
-            av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] AV_PIX_FMT_DRM_PRIME(%p).\n", __FUNCTION__, __LINE__, (void *)rkmppframe);
+            av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] AV_PIX_FMT_DRM_PRIME(%p).\n", __FUNCTION__, __LINE__, (void *)rkmppframe);
         }else {
             buf = mpp_buffer_get_ptr(encoder->frm_buf);
             status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
@@ -839,7 +846,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
                 status = AVERROR_UNKNOWN;
                 return status;
             }
-            //av_log(avctx, AV_LOG_WARNING, "[zspace] read_image_data costTime=%ld\n", av_gettime_relative()-encoder->timeNow);
+            //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] read_image_data costTime=%ld\n", av_gettime_relative()-encoder->timeNow);
             
         }
     }
@@ -860,7 +867,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
         mpp_frame_set_ver_stride(rkmppframe, encoder->ver_stride);
         mpp_frame_set_fmt(rkmppframe, encoder->fmt);
         if (encoder->eos_reached) {
-            av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] eos_reached.\n", __FUNCTION__, __LINE__);
+            av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] eos_reached.\n", __FUNCTION__, __LINE__);
             mpp_frame_set_buffer(rkmppframe, NULL);
         } else {
             mpp_frame_set_buffer(rkmppframe, encoder->frm_buf);
@@ -871,7 +878,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     if (inframe) {
         mpp_frame_set_pts(rkmppframe, inframe->pts);
         //mpp_frame_set_dts(rkmppframe, inframe->pkt_dts);
-        //av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", inframe->pts, inframe->pkt_dts);
+        //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", inframe->pts, inframe->pkt_dts);
     }
 
     meta = mpp_frame_get_meta(rkmppframe);
@@ -958,7 +965,7 @@ static int rkmpp_get_packet(
             }
             encoder->timeNow = av_gettime_relative();
             timeCost = encoder->timeNow - encoder->timeLast;
-            av_log(avctx, AV_LOG_WARNING, "[zspace] get avpacket costTime=%ld, duration=%ld, size:%d, pts=%ld dts=%ld %02x %02x %02x %02x %02x\n", timeCost, pkt->duration, pkt->size, pkt->pts, pkt->dts,
+            av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] get avpacket costTime=%ld, duration=%ld, size:%d, pts=%ld dts=%ld %02x %02x %02x %02x %02x\n", timeCost, pkt->duration, pkt->size, pkt->pts, pkt->dts,
                     pkt->data[0], pkt->data[1], pkt->data[2], pkt->data[3], pkt->data[4]);
             encoder->timeLast = encoder->timeNow;
 
@@ -996,7 +1003,7 @@ static int rkmpp_get_packet(
                                         " qp %d", avg_qp);
             }
 
-            //av_log(avctx, AV_LOG_WARNING, "%p %s\n", ctx, log_buf);
+            //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "%p %s\n", ctx, log_buf);
 
 
             encoder->stream_size += len;
@@ -1024,7 +1031,7 @@ static int rkmpp_encode_frame(
     MppPacket packet = NULL;
     int64_t time_now = 0;
 
-    av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
     *got_packet = 0;
     if (encoder->first_packet) {
         //do some need work!!!
@@ -1036,17 +1043,17 @@ static int rkmpp_encode_frame(
     if (status) {
         goto end_nopkt;
     }
-    //av_log(avctx, AV_LOG_WARNING, "[zspace] rkmpp_send_frame costTime=%ld, skip_time=%ld\n", av_gettime_relative()-time_now, time_now-encoder->timeLast);
+    //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] rkmpp_send_frame costTime=%ld, skip_time=%ld\n", av_gettime_relative()-time_now, time_now-encoder->timeLast);
 
     time_now = av_gettime_relative();
     status = rkmpp_get_packet(avctx, encoder, pkt, &packet);
     if (status || encoder->pkt_eos) {
         goto end_nopkt;
     }
-    //av_log(avctx, AV_LOG_WARNING, "[zspace] rkmpp_get_packet costTime=%ld\n", av_gettime_relative()-time_now);
+    //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] rkmpp_get_packet costTime=%ld\n", av_gettime_relative()-time_now);
 
     *got_packet = 1;
-    av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] Out get one packet .\n", __FUNCTION__, __LINE__);
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] Out get one packet .\n", __FUNCTION__, __LINE__);
     return 0;
 
 end_nopkt:
