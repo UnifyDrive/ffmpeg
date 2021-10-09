@@ -41,6 +41,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/time.h"
+#include "libavutil/buffer_internal.h"
 
 
 #define RECEIVE_PACKET_TIMEOUT   100
@@ -167,6 +168,12 @@ typedef struct {
     int64_t require_sw;
 } RKMPPEncodeContext;
 
+typedef struct {
+    MppFrame frame;
+    AVBufferRef *decoder_ref;
+} RKMPPFrameContext;
+
+
 static MppCodingType rkmpp_get_codingtype(AVCodecContext *avctx)
 {
     switch (avctx->codec_id) {
@@ -264,10 +271,10 @@ static int rkmpp_get_encode_parameters(
 
     encoder->fps_in_flex = 0;
     encoder->fps_in_den   = 1;
-    encoder->fps_in_num   = avctx->framerate.num;
+    encoder->fps_in_num   = avctx->framerate.den>0?(avctx->framerate.num/avctx->framerate.den):25;
     encoder->fps_out_flex = 0;
     encoder->fps_out_den  = 1;
-    encoder->fps_out_num  = avctx->framerate.num;
+    encoder->fps_out_num  = avctx->framerate.den>0?(avctx->framerate.num/avctx->framerate.den):25;
 
     encoder->gop_mode = 0;//???
     encoder->gop_len = avctx->gop_size>encoder->fps_out_num?avctx->gop_size:0;
@@ -315,6 +322,7 @@ static int rkmpp_get_encode_parameters(
         encoder->header_size = 0;
 
     av_log(avctx, AV_LOG_WARNING, "[zspace] timebase.num=%d,timebase.den=%d\n", avctx->time_base.num, avctx->time_base.den);
+    av_log(avctx, AV_LOG_WARNING, "[zspace] avctx->framerate.num=%d,avctx->framerate.den=%d\n", avctx->framerate.num, avctx->framerate.den);
     av_log(avctx, AV_LOG_WARNING, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
         AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
     av_log(avctx, AV_LOG_WARNING, "[zspace]Get parameters encoder->width=%d,encoder->height=%d, encoder->hor_stride=%d, encoder->ver_stride=%d, encoder->rc_mode=%d, encoder->bps=%d, encoder->gop_len=%d, encoder->profile=%d, encoder->level=%d, encoder->fps_in_num=%d\n", 
@@ -804,9 +812,11 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
     MppCtx ctx;
     MppMeta meta = NULL;
     MppFrame rkmppframe = NULL;
-    void *buf = mpp_buffer_get_ptr(encoder->frm_buf);
+    void *buf = NULL;
+    AVBufferRef *framecontextref = NULL;
+    RKMPPFrameContext *framecontext = NULL;
 
-
+    av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
     mpi = encoder->mpi;
     ctx = encoder->ctx;
 
@@ -816,38 +826,52 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
         av_log(avctx, AV_LOG_ERROR, "[zspace] Meet NUll inframe, set frm_eof = 1\n");
     }else {
         encoder->timeNow = av_gettime_relative();
-        status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
-        if (status) {
-            av_log(avctx, AV_LOG_ERROR, "read_image_data failed (%d)\n", status);
+        if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME && inframe) {
+            framecontextref = (AVBufferRef *) av_buffer_get_opaque(inframe->buf[0]);
+            framecontext = (RKMPPFrameContext *)framecontextref->data;
+            rkmppframe = framecontext->frame;
+            av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] AV_PIX_FMT_DRM_PRIME(%p).\n", __FUNCTION__, __LINE__, (void *)rkmppframe);
+        }else {
+            buf = mpp_buffer_get_ptr(encoder->frm_buf);
+            status = read_image_data(buf, inframe, encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->fmt);
+            if (status) {
+                av_log(avctx, AV_LOG_ERROR, "read_image_data failed (%d)\n", status);
+                status = AVERROR_UNKNOWN;
+                return status;
+            }
+            //av_log(avctx, AV_LOG_WARNING, "[zspace] read_image_data costTime=%ld\n", av_gettime_relative()-encoder->timeNow);
+            
+        }
+    }
+
+    if (rkmppframe == NULL) {
+        ret = mpp_frame_init(&rkmppframe);
+        if (ret) {
+            av_log(avctx, AV_LOG_ERROR, "mpp_frame_init failed (%d)\n", ret);
             status = AVERROR_UNKNOWN;
             return status;
         }
-        //av_log(avctx, AV_LOG_WARNING, "[zspace] read_image_data costTime=%ld\n", av_gettime_relative()-encoder->timeNow);
     }
 
-    ret = mpp_frame_init(&rkmppframe);
-    if (ret) {
-        av_log(avctx, AV_LOG_ERROR, "mpp_frame_init failed (%d)\n", ret);
-        status = AVERROR_UNKNOWN;
-        return status;
+    if (framecontextref == NULL) {
+        mpp_frame_set_width(rkmppframe, encoder->width);
+        mpp_frame_set_height(rkmppframe, encoder->height);
+        mpp_frame_set_hor_stride(rkmppframe, encoder->hor_stride);
+        mpp_frame_set_ver_stride(rkmppframe, encoder->ver_stride);
+        mpp_frame_set_fmt(rkmppframe, encoder->fmt);
+        if (encoder->eos_reached) {
+            av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] eos_reached.\n", __FUNCTION__, __LINE__);
+            mpp_frame_set_buffer(rkmppframe, NULL);
+        } else {
+            mpp_frame_set_buffer(rkmppframe, encoder->frm_buf);
+        }
     }
 
-    mpp_frame_set_width(rkmppframe, encoder->width);
-    mpp_frame_set_height(rkmppframe, encoder->height);
-    mpp_frame_set_hor_stride(rkmppframe, encoder->hor_stride);
-    mpp_frame_set_ver_stride(rkmppframe, encoder->ver_stride);
-    mpp_frame_set_fmt(rkmppframe, encoder->fmt);
     mpp_frame_set_eos(rkmppframe, encoder->frm_eos);
     if (inframe) {
         mpp_frame_set_pts(rkmppframe, inframe->pts);
         //mpp_frame_set_dts(rkmppframe, inframe->pkt_dts);
         //av_log(avctx, AV_LOG_WARNING, "[zspace] inframe->pts=%lld, pkt_dts=%lld\n", inframe->pts, inframe->pkt_dts);
-    }
-
-    if (encoder->eos_reached) {
-        mpp_frame_set_buffer(rkmppframe, NULL);
-    } else {
-        mpp_frame_set_buffer(rkmppframe, encoder->frm_buf);
     }
 
     meta = mpp_frame_get_meta(rkmppframe);
@@ -867,13 +891,15 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
      */
     ret = mpi->encode_put_frame(ctx, rkmppframe);
     if (ret) {
-        mpp_frame_deinit(&rkmppframe);
         av_log(avctx, AV_LOG_ERROR, "mpp encode put frame failed (%d)\n", ret);
         status = AVERROR_UNKNOWN;
-        return status;
     }
 
-    mpp_frame_deinit(&rkmppframe);
+    if (framecontextref == NULL) {
+        mpp_frame_deinit(&rkmppframe);
+    }else {
+        //av_buffer_unref(&framecontextref);
+    }
 
     return status;
 }
@@ -998,8 +1024,8 @@ static int rkmpp_encode_frame(
     MppPacket packet = NULL;
     int64_t time_now = 0;
 
+    av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] begin .\n", __FUNCTION__, __LINE__);
     *got_packet = 0;
-
     if (encoder->first_packet) {
         //do some need work!!!
         encoder->first_packet = 0;
@@ -1020,6 +1046,7 @@ static int rkmpp_encode_frame(
     //av_log(avctx, AV_LOG_WARNING, "[zspace] rkmpp_get_packet costTime=%ld\n", av_gettime_relative()-time_now);
 
     *got_packet = 1;
+    av_log(avctx, AV_LOG_WARNING, "[zspace] [%s:%d] Out get one packet .\n", __FUNCTION__, __LINE__);
     return 0;
 
 end_nopkt:
@@ -1094,8 +1121,9 @@ static const AVOption rkmpp_h264_options[] = {
 
     
 static const enum AVPixelFormat rkmpp_enc_avc_pix_fmts[] = {
-    AV_PIX_FMT_YUV420P,
+    AV_PIX_FMT_DRM_PRIME,
     AV_PIX_FMT_NV12,
+    AV_PIX_FMT_YUV420P,
     AV_PIX_FMT_NONE
 };
 
