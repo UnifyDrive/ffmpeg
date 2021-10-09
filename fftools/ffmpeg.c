@@ -1232,6 +1232,7 @@ static void do_video_out(OutputFile *of,
                 delta0 = 0;
                 ost->sync_opts = llrint(sync_ipts);
             }
+            break;
         case VSYNC_CFR:
             // FIXME set to 0.5 after we fix some dts/pts bugs like in avidec.c
             if (frame_drop_threshold && delta < frame_drop_threshold && ost->frame_number) {
