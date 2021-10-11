@@ -55,6 +55,10 @@ typedef struct AVDRMObjectDescriptor {
      *
      * (This includes any parts not which do not contain image data.)
      */
+    /**
+     * DRM PRIME mapped virtual ptr for above fd.
+     */
+    void *ptr;
     size_t size;
     /**
      * Format modifier applied to the object (DRM_FORMAT_MOD_*).
