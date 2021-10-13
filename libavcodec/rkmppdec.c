@@ -134,7 +134,7 @@ static int rkmpp_write_nv12(MppBuffer mpp_buffer, int mpp_vir_width,
     return 0;
 
 bail:
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] run bail .\n", __FUNCTION__, __LINE__);
+    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Pull out data from VPU use memcpy!.\n", __FUNCTION__, __LINE__);
     do {
         int i;
         uint8_t* src_ptr = (uint8_t*) mpp_buffer_get_ptr(mpp_buffer);
@@ -313,15 +313,16 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
     RK_S64 paramS64;
     RK_S32 paramS32;
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] avctx->pix_fmt=%d avctx->sw_pix_fmt=%d.\n", __FUNCTION__, __LINE__,
-        avctx->pix_fmt, avctx->sw_pix_fmt);
+    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d.\n", __FUNCTION__, __LINE__,
+        avctx->pix_fmt, avctx->sw_pix_fmt, avctx->codec_tag);
     if (avctx->pix_fmt == AV_PIX_FMT_NONE &&
         avctx->sw_pix_fmt == AV_PIX_FMT_NONE) {
         // chromium only support AV_PIX_FMT_YUV420P
         avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_YUV420P;
     } else {
-        //if (avctx->pix_fmt == AV_PIX_FMT_YUV420P)
-            avctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        if (avctx->pix_fmt == AV_PIX_FMT_NONE || avctx->pix_fmt == AV_PIX_FMT_YUV420P) {
+            avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        }
         avctx->sw_pix_fmt = (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME) ?
                             AV_PIX_FMT_NV12 : avctx->pix_fmt;
     }
@@ -447,7 +448,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
     RKMPPDecoder *decoder = (RKMPPDecoder *)rk_context->decoder_ref->data;
     int ret;
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     // handle EOF
     if (!avpkt->size) {
         av_log(avctx, AV_LOG_DEBUG, "End of stream.\n");
@@ -477,7 +478,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
     if (ret && ret!=AVERROR(EAGAIN))
         av_log(avctx, AV_LOG_ERROR, "Failed to write data to decoder (code = %d)\n", ret);
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) .\n", __FUNCTION__, __LINE__, ret);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) .\n", __FUNCTION__, __LINE__, ret);
     return ret;
 }
 
@@ -487,7 +488,7 @@ static void rkmpp_release_frame(void *opaque, uint8_t *data)
     AVBufferRef *framecontextref = (AVBufferRef *)opaque;
     RKMPPFrameContext *framecontext = (RKMPPFrameContext *)framecontextref->data;
 
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
     mpp_frame_deinit(&framecontext->frame);
     av_buffer_unref(&framecontext->decoder_ref);
     av_buffer_unref(&framecontextref);
