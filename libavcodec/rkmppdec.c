@@ -19,11 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <drm_fourcc.h>
 #include <pthread.h>
-#include <rga/RgaApi.h>
-#include <rockchip/mpp_buffer.h>
-#include <rockchip/rk_mpi.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -31,13 +27,12 @@
 #include "decode.h"
 #include "hwconfig.h"
 #include "internal.h"
-#include "libavutil/buffer.h"
-#include "libavutil/common.h"
-#include "libavutil/frame.h"
 #include "libavutil/hwcontext.h"
 #include "libavutil/hwcontext_drm.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/log.h"
+
+#include "rkmppdec.h"
 
 #define RECEIVE_FRAME_TIMEOUT   30
 #define FRAMEGROUP_MAX_FRAMES   16
@@ -52,28 +47,6 @@ static int rga_supported = -1;
 #define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_INFO
 #endif
 
-
-typedef struct {
-    MppCtx ctx;
-    MppApi *mpi;
-    MppBufferGroup frame_group;
-
-    char first_packet;
-    char eos_reached;
-
-    AVBufferRef *frames_ref;
-    AVBufferRef *device_ref;
-} RKMPPDecoder;
-
-typedef struct {
-    AVClass *av_class;
-    AVBufferRef *decoder_ref;
-} RKMPPDecodeContext;
-
-typedef struct {
-    MppFrame frame;
-    AVBufferRef *decoder_ref;
-} RKMPPFrameContext;
 
 static int get_rga_format(int av_fmt) {
     switch (av_fmt) {
@@ -313,19 +286,23 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
     RK_S64 paramS64;
     RK_S32 paramS32;
 
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d.\n", __FUNCTION__, __LINE__,
+    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]In avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d.\n", __FUNCTION__, __LINE__,
         avctx->pix_fmt, avctx->sw_pix_fmt, avctx->codec_tag);
     if (avctx->pix_fmt == AV_PIX_FMT_NONE &&
         avctx->sw_pix_fmt == AV_PIX_FMT_NONE) {
-        // chromium only support AV_PIX_FMT_YUV420P
-        avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_YUV420P;
+        // chromium only support AV_PIX_FMT_NV12
+        avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
     } else {
         if (avctx->pix_fmt == AV_PIX_FMT_NONE || avctx->pix_fmt == AV_PIX_FMT_YUV420P) {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        }else {
+            avctx->pix_fmt = AV_PIX_FMT_NV12;
         }
         avctx->sw_pix_fmt = (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME) ?
-                            AV_PIX_FMT_NV12 : avctx->pix_fmt;
+                            AV_PIX_FMT_DRM_PRIME : avctx->pix_fmt;
     }
+    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Out avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d.\n", __FUNCTION__, __LINE__,
+        avctx->pix_fmt, avctx->sw_pix_fmt, avctx->codec_tag);
 
     // create a decoder and a ref to it
     decoder = av_mallocz(sizeof(RKMPPDecoder));
@@ -488,7 +465,7 @@ static void rkmpp_release_frame(void *opaque, uint8_t *data)
     AVBufferRef *framecontextref = (AVBufferRef *)opaque;
     RKMPPFrameContext *framecontext = (RKMPPFrameContext *)framecontextref->data;
 
-    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
+    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
     mpp_frame_deinit(&framecontext->frame);
     av_buffer_unref(&framecontext->decoder_ref);
     av_buffer_unref(&framecontextref);
@@ -570,8 +547,10 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             hwframes->width     = avctx->width;
             hwframes->height    = avctx->height;
             ret = av_hwframe_ctx_init(decoder->frames_ref);
-            if (ret < 0)
+            if (ret < 0) {
+                av_log(avctx, AV_LOG_ERROR, "av_hwframe_ctx_init() failed.\n");
                 goto fail;
+            }
 
             // here decoder is fully initialized, we need to feed it again with data
             ret = AVERROR(EAGAIN);

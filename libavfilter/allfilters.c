@@ -373,6 +373,7 @@ extern AVFilter ff_vf_roberts;
 extern AVFilter ff_vf_roberts_opencl;
 extern AVFilter ff_vf_rotate;
 extern AVFilter ff_vf_sab;
+extern AVFilter ff_vf_scale_rkmpp;
 extern AVFilter ff_vf_scale;
 extern AVFilter ff_vf_scale_cuda;
 extern AVFilter ff_vf_scale_npp;
