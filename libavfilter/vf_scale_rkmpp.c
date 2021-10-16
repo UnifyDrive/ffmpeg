@@ -170,6 +170,9 @@ typedef struct RKMPPScaleContext {
     int force_original_aspect_ratio;
     int force_divisible_by;
 
+    MppBuffer frm_buf;
+    MppBufferGroup buf_grp;
+    int frm_buf_size;
 } RKMPPScaleContext;
 
 static int rkmppscale_config_props(AVFilterLink *outlink);
@@ -260,14 +263,27 @@ revert:
 
 static int rkmppscale_init(AVFilterContext *ctx)
 {
+    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     RKMPPScaleContext *s = ctx->priv;
+    int ret = 0;
 
     s->format = AV_PIX_FMT_DRM_PRIME;
     s->frame = av_frame_alloc();
     if (!s->frame)
         return AVERROR(ENOMEM);
 
-    return 0;
+    ret = mpp_buffer_group_get_internal(&s->buf_grp, MPP_BUFFER_TYPE_DRM);
+    if (ret) {
+        av_log(ctx, AV_LOG_ERROR, "failed to get mpp buffer group ret %d\n", ret);
+        ret = AVERROR_UNKNOWN;
+        goto init_fail;
+    }
+    s->frm_buf = NULL;
+    s->frm_buf_size = 0;
+
+
+init_fail:
+    return ret;
 }
 
 static void rkmppscale_uninit(AVFilterContext *ctx)
@@ -276,6 +292,16 @@ static void rkmppscale_uninit(AVFilterContext *ctx)
 
     if (s->hwctx) {
         
+    }
+    
+    if (s->frm_buf) {
+        mpp_buffer_put(s->frm_buf);
+        s->frm_buf = NULL;
+    }
+
+    if (s->buf_grp) {
+        mpp_buffer_group_put(s->buf_grp);
+        s->buf_grp = NULL;
     }
 
     av_frame_free(&s->frame);
@@ -483,7 +509,21 @@ static int call_resize_kernel(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
     destHor_stride = MPP_ALIGN(s->dest_w, 16);
     destVer_stride = MPP_ALIGN(s->dest_h, 16);
     destSize = destHor_stride * destVer_stride * 3 / 2;
-    mpp_buffer_get(NULL, &destBuffer, destSize);
+    if (s->frm_buf == NULL || destSize != s->frm_buf_size) {
+        if (s->frm_buf) {
+            mpp_buffer_put(s->frm_buf);
+            s->frm_buf = NULL;
+        }
+        s->frm_buf_size = destSize;
+        ret = mpp_buffer_get(s->buf_grp, &s->frm_buf, s->frm_buf_size);
+        if (ret) {
+            av_log(ctx, AV_LOG_ERROR, "failed to get buffer for scale MppBuffer ret %d\n", ret);
+            ret = AVERROR_UNKNOWN;
+            goto resize_exit;
+        }
+    }
+    destBuffer = s->frm_buf;
+    //mpp_buffer_get(NULL, &destBuffer, destSize);
     dst_info.fd = mpp_buffer_get_fd(destBuffer);
     dst_info.mmuFlag = 1;
     rga_set_rect(&dst_info.rect, 0, 0, s->dest_w, s->dest_h,
