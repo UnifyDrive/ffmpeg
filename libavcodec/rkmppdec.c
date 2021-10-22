@@ -294,9 +294,9 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
         avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
     } else {
         if (avctx->pix_fmt == AV_PIX_FMT_NONE || avctx->pix_fmt == AV_PIX_FMT_YUV420P) {
-            avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
-        }else {
             avctx->pix_fmt = AV_PIX_FMT_NV12;
+        }else {
+            avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }
         avctx->sw_pix_fmt = (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME) ?
                             AV_PIX_FMT_DRM_PRIME : avctx->pix_fmt;
