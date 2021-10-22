@@ -137,7 +137,9 @@ static const struct {
     { AV_PIX_FMT_YUV422P,   DRM_FORMAT_YUV422,      },
     { AV_PIX_FMT_NV21,      DRM_FORMAT_NV21,        },
     { AV_PIX_FMT_NV12,      DRM_FORMAT_NV12,        },
+#ifdef DRM_FORMAT_NV12_10
     { AV_PIX_FMT_P010,      DRM_FORMAT_NV12_10,     },
+#endif
     { AV_PIX_FMT_YUV420P,   DRM_FORMAT_YUV420,      },
     //{ AV_PIX_FMT_DRM_PRIME, DRM_FORMAT_NV12,        },
 };
