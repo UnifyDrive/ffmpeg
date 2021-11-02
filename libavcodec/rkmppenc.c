@@ -205,7 +205,11 @@ static MppFrameFormat rkmpp_get_frameformat(enum AVPixelFormat format)
 
 static int rkmpp_close_encoder(AVCodecContext *avctx)
 {
-
+    RKMPPEncodeContext *rk_context = avctx->priv_data;
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref encoder_ref.\n", __FUNCTION__, __LINE__);
+    av_buffer_unref(&rk_context->encoder_ref);
+    rk_context->encoder_ref = NULL;
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] End unref encoder_ref and set to NULL.\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -640,6 +644,7 @@ static int rkmpp_init_encoder(AVCodecContext *avctx)
     rk_context->encoder_ref = av_buffer_create((uint8_t *)encoder, sizeof(*encoder), rkmpp_release_encoder,
                                                    NULL, AV_BUFFER_FLAG_READONLY);
     if (!rk_context->encoder_ref) {
+        av_log(avctx, AV_LOG_ERROR, "av_buffer_create() for encoder_ref failed!\n");
         av_free(encoder);
         ret = AVERROR(ENOMEM);
         goto fail;
