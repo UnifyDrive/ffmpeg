@@ -252,7 +252,10 @@ static int rkmpp_write_data(AVCodecContext *avctx, uint8_t *buffer, int size, in
 static int rkmpp_close_decoder(AVCodecContext *avctx)
 {
     RKMPPDecodeContext *rk_context = avctx->priv_data;
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref decoder_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&rk_context->decoder_ref);
+    rk_context->decoder_ref = NULL;
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] End unref decoder_ref and set to NULL.\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -271,8 +274,11 @@ static void rkmpp_release_decoder(void *opaque, uint8_t *data)
         decoder->frame_group = NULL;
     }
 
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref frames_ref and device_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&decoder->frames_ref);
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref  device_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&decoder->device_ref);
+    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] End unref frames_ref and device_ref.\n", __FUNCTION__, __LINE__);
 
     av_free(decoder);
 }
@@ -518,7 +524,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
         if (mpp_frame_get_info_change(mppframe)) {
             AVHWFramesContext *hwframes;
 
-            av_log(avctx, AV_LOG_INFO, "Decoder noticed an info change (%dx%d), format=%d\n",
+            av_log(avctx, AV_LOG_ERROR, "Decoder noticed an info change (%dx%d), format=%d\n",
                                         (int)mpp_frame_get_width(mppframe), (int)mpp_frame_get_height(mppframe),
                                         (int)mpp_frame_get_fmt(mppframe));
 
@@ -534,6 +540,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
 
             decoder->frames_ref = av_hwframe_ctx_alloc(decoder->device_ref);
             if (!decoder->frames_ref) {
+                av_log(avctx, AV_LOG_ERROR, "av_hwframe_ctx_alloc() failed.\n");
                 ret = AVERROR(ENOMEM);
                 goto fail;
             }
