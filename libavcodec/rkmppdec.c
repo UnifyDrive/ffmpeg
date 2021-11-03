@@ -276,8 +276,10 @@ static void rkmpp_release_decoder(void *opaque, uint8_t *data)
 
     av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref frames_ref and device_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&decoder->frames_ref);
+    decoder->frames_ref = NULL;
     av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref  device_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&decoder->device_ref);
+    decoder->device_ref = NULL;
     av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] End unref frames_ref and device_ref.\n", __FUNCTION__, __LINE__);
 
     av_free(decoder);
@@ -531,8 +533,10 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             avctx->width = mpp_frame_get_width(mppframe);
             avctx->height = mpp_frame_get_height(mppframe);
             // chromium will align u/v width height to 32
-            avctx->coded_width = FFALIGN(avctx->width, 64);
-            avctx->coded_height = FFALIGN(avctx->height, 64);
+            //avctx->coded_width = FFALIGN(avctx->width, 64);
+            //avctx->coded_height = FFALIGN(avctx->height, 64);
+            avctx->coded_width = avctx->width;
+            avctx->coded_height = avctx->height;
 
             decoder->mpi->control(decoder->ctx, MPP_DEC_SET_INFO_CHANGE_READY, NULL);
 
