@@ -302,13 +302,13 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
         avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
     } else {
         if (avctx->pix_fmt == AV_PIX_FMT_NONE || avctx->pix_fmt == AV_PIX_FMT_YUV420P) {
-            avctx->pix_fmt = AV_PIX_FMT_NV12;
+            avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }else {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }
-        avctx->sw_pix_fmt = (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME) ?
-                            AV_PIX_FMT_DRM_PRIME : avctx->pix_fmt;
     }
+    avctx->sw_pix_fmt = (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME) ?
+                            AV_PIX_FMT_DRM_PRIME : avctx->pix_fmt;
     av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Out avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d.\n", __FUNCTION__, __LINE__,
         avctx->pix_fmt, avctx->sw_pix_fmt, avctx->codec_tag);
 
@@ -526,7 +526,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
         if (mpp_frame_get_info_change(mppframe)) {
             AVHWFramesContext *hwframes;
 
-            av_log(avctx, AV_LOG_ERROR, "Decoder noticed an info change (%dx%d), format=%d\n",
+            av_log(avctx, AV_LOG_ERROR, "xxxDecoder noticed an info change (%dx%d), format=%d\n",
                                         (int)mpp_frame_get_width(mppframe), (int)mpp_frame_get_height(mppframe),
                                         (int)mpp_frame_get_fmt(mppframe));
 

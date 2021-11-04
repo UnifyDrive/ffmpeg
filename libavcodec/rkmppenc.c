@@ -1058,6 +1058,9 @@ static int rkmpp_encode_frame(
     //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] rkmpp_get_packet costTime=%ld\n", av_gettime_relative()-time_now);
 
     *got_packet = 1;
+    if (packet) {
+        mpp_packet_deinit(&packet);
+    }
     //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] [%s:%d] Out get one packet .\n", __FUNCTION__, __LINE__);
     return 0;
 
