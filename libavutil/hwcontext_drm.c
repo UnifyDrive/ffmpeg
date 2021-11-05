@@ -106,7 +106,7 @@ static int card_index = 0;
 static const struct {
     enum AVPixelFormat pixfmt;
     uint32_t drm_format;
-} supported_formats[] = {
+} sw_drm_supported_formats[] = {
 
     { AV_PIX_FMT_NV12,      DRM_FORMAT_NV12,        },
 #ifdef DRM_FORMAT_NV12_10
@@ -146,9 +146,9 @@ static const struct {
 };
 
 enum AVPixelFormat av_drm_get_pixfmt(uint32_t drm_format) {
-    for (int i = 0; i < FF_ARRAY_ELEMS(supported_formats); i++) {
-        if (supported_formats[i].drm_format == drm_format)
-            return supported_formats[i].pixfmt;
+    for (int i = 0; i < FF_ARRAY_ELEMS(sw_drm_supported_formats); i++) {
+        if (sw_drm_supported_formats[i].drm_format == drm_format)
+            return sw_drm_supported_formats[i].pixfmt;
     }
     return AV_PIX_FMT_NONE;
 }
@@ -157,7 +157,7 @@ enum AVPixelFormat av_drm_get_pixfmt(uint32_t drm_format) {
 static void drm_device_free(AVHWDeviceContext *hwdev)
 {
     AVDRMDeviceContext *hwctx = hwdev->hwctx;
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwdev, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     close(hwctx->fd);
 }
 
@@ -166,10 +166,10 @@ static int drm_device_create(AVHWDeviceContext *hwdev, const char *device,
 {
     AVDRMDeviceContext *hwctx = hwdev->hwctx;
     drmVersionPtr version;
-    char drm_dev[] = "/dev/dri/card0000";
+    char drm_dev[64] = {0}; //"/dev/dri/card0"
     uint64_t has_dumb;
 
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwdev, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     if (!device) {
         snprintf(drm_dev, sizeof(drm_dev), DRM_DEV_NAME, DRM_DIR_NAME,
                  card_index);
@@ -177,8 +177,10 @@ static int drm_device_create(AVHWDeviceContext *hwdev, const char *device,
     }
 
     hwctx->fd = open(device, O_RDWR);
-    if (hwctx->fd < 0)
+    if (hwctx->fd < 0) {
+        av_log(hwdev, AV_LOG_ERROR, "Failed to open %s: probably not a DRM device?\n", device);
         return AVERROR(errno);
+    }
 
     version = drmGetVersion(hwctx->fd);
     if (!version) {
@@ -188,7 +190,7 @@ static int drm_device_create(AVHWDeviceContext *hwdev, const char *device,
         return AVERROR(EINVAL);
     }
 
-    av_log(hwdev, AV_LOG_VERBOSE, "Opened DRM device %s: driver %s "
+    av_log(hwdev, ZSPACE_HWDRM_DEBUG_LEVEL, "Opened DRM device %s: driver %s "
            "version %d.%d.%d.\n", device, version->name,
            version->version_major, version->version_minor,
            version->version_patchlevel);
@@ -214,7 +216,7 @@ static int drm_frames_get_constraints(AVHWDeviceContext *hwdev,
 {
     int i;
 
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwdev, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     constraints->min_width = 16;
     constraints->min_height = 16;
 
@@ -226,12 +228,12 @@ static int drm_frames_get_constraints(AVHWDeviceContext *hwdev,
     constraints->valid_hw_formats[1] = AV_PIX_FMT_NONE;
 
     constraints->valid_sw_formats =
-        av_malloc_array(FF_ARRAY_ELEMS(supported_formats) + 1,
+        av_malloc_array(FF_ARRAY_ELEMS(sw_drm_supported_formats) + 1,
                         sizeof(enum AVPixelFormat));
     if (!constraints->valid_sw_formats)
         return AVERROR(ENOMEM);
-    for(i = 0; i < FF_ARRAY_ELEMS(supported_formats); i++)
-        constraints->valid_sw_formats[i] = supported_formats[i].pixfmt;
+    for(i = 0; i < FF_ARRAY_ELEMS(sw_drm_supported_formats); i++)
+        constraints->valid_sw_formats[i] = sw_drm_supported_formats[i].pixfmt;
     constraints->valid_sw_formats[i] = AV_PIX_FMT_NONE;
 
     return 0;
@@ -348,9 +350,9 @@ static AVBufferRef *drm_pool_alloc(void *opaque, int size)
     desc->objects[0].size = dmcb.size;
 
     layer = &desc->layers[0];
-    for (i = 0; i < FF_ARRAY_ELEMS(supported_formats); i++) {
-        if (supported_formats[i].pixfmt == hwfc->sw_format) {
-            layer->format = supported_formats[i].drm_format;
+    for (i = 0; i < FF_ARRAY_ELEMS(sw_drm_supported_formats); i++) {
+        if (sw_drm_supported_formats[i].pixfmt == hwfc->sw_format) {
+            layer->format = sw_drm_supported_formats[i].drm_format;
             break;
         }
     }
@@ -383,20 +385,20 @@ fail:
 
 static int drm_frames_init(AVHWFramesContext *hwfc)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     int i;
     if (hwfc->pool) {
         // has been set outside?
         return 0;
     }
 
-    for (i = 0; i < FF_ARRAY_ELEMS(supported_formats); i++)
-        if (supported_formats[i].pixfmt == hwfc->sw_format) {
-            av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] hwfc->sw_format=%d, supported_formats[%d].drm_format=%d .\n", __FUNCTION__, __LINE__,
-                hwfc->sw_format, i, supported_formats[i].drm_format);
+    for (i = 0; i < FF_ARRAY_ELEMS(sw_drm_supported_formats); i++)
+        if (sw_drm_supported_formats[i].pixfmt == hwfc->sw_format) {
+            av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] hwfc->sw_format=%d, sw_drm_supported_formats[%d].drm_format=%d .\n", __FUNCTION__, __LINE__,
+                hwfc->sw_format, i, sw_drm_supported_formats[i].drm_format);
             break;
         }
-    if (i >= FF_ARRAY_ELEMS(supported_formats)) {
+    if (i >= FF_ARRAY_ELEMS(sw_drm_supported_formats)) {
         av_log(hwfc, AV_LOG_ERROR, "Unsupported format: %s.\n",
                av_get_pix_fmt_name(hwfc->sw_format));
         return AVERROR(EINVAL);
@@ -415,12 +417,12 @@ static int drm_frames_init(AVHWFramesContext *hwfc)
 
 static void drm_frames_uninit(AVHWFramesContext *hwfc av_unused)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
 }
 
 static int drm_get_buffer(AVHWFramesContext *hwfc, AVFrame *frame)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin hwfc->width=%d, hwfc->height=%d.\n", __FUNCTION__, __LINE__,
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin hwfc->width=%d, hwfc->height=%d.\n", __FUNCTION__, __LINE__,
         hwfc->width, hwfc->height);
     frame->buf[0] = av_buffer_pool_get(hwfc->pool);
     if (!frame->buf[0])
@@ -432,6 +434,7 @@ static int drm_get_buffer(AVHWFramesContext *hwfc, AVFrame *frame)
     frame->width  = hwfc->width;
     frame->height = hwfc->height;
 
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] End.\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -447,7 +450,7 @@ typedef struct DRMMapping {
 static void drm_unmap_frame(AVHWFramesContext *hwfc,
                             HWMapDescriptor *hwmap)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     DRMMapping *map = hwmap->priv;
 
     for (int i = 0; i < map->nb_regions; i++) {
@@ -464,15 +467,15 @@ static void drm_unmap_frame(AVHWFramesContext *hwfc,
 static int drm_map_frame(AVHWFramesContext *hwfc,
                          AVFrame *dst, const AVFrame *src, int flags)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     const AVDRMFrameDescriptor *desc = (AVDRMFrameDescriptor*)src->data[0];
 #if HAVE_LINUX_DMA_BUF_H
     struct dma_buf_sync sync_start = { 0 };
 #endif
-    DRMMapping *map;
+    DRMMapping *map = NULL;
     int err, i, p, plane;
     int mmap_prot;
-    void *addr;
+    void *addr = NULL;
 
     map = av_mallocz(sizeof(*map));
     if (!map)
@@ -551,7 +554,7 @@ static int drm_transfer_get_formats(AVHWFramesContext *ctx,
                                     enum AVHWFrameTransferDirection dir,
                                     enum AVPixelFormat **formats)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(ctx, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     enum AVPixelFormat *pix_fmts;
 
     pix_fmts = av_malloc_array(2, sizeof(*pix_fmts));
@@ -568,7 +571,7 @@ static int drm_transfer_get_formats(AVHWFramesContext *ctx,
 static int drm_transfer_data_from(AVHWFramesContext *hwfc,
                                   AVFrame *dst, const AVFrame *src)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     AVFrame *map;
     int err;
 
@@ -600,7 +603,7 @@ fail:
 static int drm_transfer_data_to(AVHWFramesContext *hwfc,
                                 AVFrame *dst, const AVFrame *src)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     AVFrame *map;
     int err;
 
@@ -633,7 +636,7 @@ fail:
 static int drm_map_from(AVHWFramesContext *hwfc, AVFrame *dst,
                         const AVFrame *src, int flags)
 {
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
+    av_log(hwfc, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
     int err;
 
     if (hwfc->sw_format != dst->format)

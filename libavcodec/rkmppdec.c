@@ -68,7 +68,7 @@ static int rkmpp_write_nv12(MppBuffer mpp_buffer, int mpp_vir_width,
     int height = dst_frame->height - (dst_frame->crop_bottom + dst_frame->crop_top);
     int possible_height;
     int rga_format = get_rga_format(dst_frame->format);
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dst_frame->format=%d.\n", __FUNCTION__, __LINE__, dst_frame->format);
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dst_frame->format=%d.\n", __FUNCTION__, __LINE__, dst_frame->format);
 
     if (rga_format < 0)
         return AVERROR(EINVAL);
@@ -200,7 +200,7 @@ static MppCodingType rkmpp_get_codingtype(AVCodecContext *avctx)
     }
 }
 
-static uint32_t rkmpp_get_frameformat(MppFrameFormat mppformat)
+static uint32_t rkmpp_get_drmformat(MppFrameFormat mppformat)
 {
     switch (mppformat) {
     case MPP_FMT_YUV420SP:          return DRM_FORMAT_NV12;
@@ -550,7 +550,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             }
 
             mppformat = mpp_frame_get_fmt(mppframe);
-            drmformat = rkmpp_get_frameformat(mppformat);
+            drmformat = rkmpp_get_drmformat(mppformat);
 
             hwframes = (AVHWFramesContext*)decoder->frames_ref->data;
             hwframes->format    = AV_PIX_FMT_DRM_PRIME;
@@ -595,7 +595,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
         frame->crop_bottom      = avctx->coded_height - mpp_frame_get_height(mppframe);
 
         mppformat = mpp_frame_get_fmt(mppframe);
-        drmformat = rkmpp_get_frameformat(mppformat);
+        drmformat = rkmpp_get_drmformat(mppformat);
 
         // now setup the frame buffer info
         buffer = mpp_frame_get_buffer(mppframe);
@@ -676,14 +676,20 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             return 0;
         } else {
             av_log(avctx, AV_LOG_ERROR, "Failed to retrieve the frame buffer, frame is dropped (code = %d)\n", ret);
-            mpp_frame_deinit(&mppframe);
+            ret = AVERROR(EAGAIN);
+            goto fail;
         }
     } else if (decoder->eos_reached) {
-        return AVERROR_EOF;
+        ret = AVERROR_EOF;
+        goto fail;
     } else if (ret == MPP_ERR_TIMEOUT) {
         av_log(avctx, AV_LOG_DEBUG, "Timeout when trying to get a frame from MPP\n");
+        ret = AVERROR(EAGAIN);
+        goto fail;
     } else {
         av_log(avctx, AV_LOG_DEBUG, "MPP decode_get_frame ret = %d\n", ret);
+        ret = AVERROR(EAGAIN);
+        goto fail;
     }
 
     return AVERROR(EAGAIN);

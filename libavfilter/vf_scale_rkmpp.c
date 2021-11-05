@@ -466,7 +466,7 @@ static void rkmppscale_release_frame(void *opaque, uint8_t *data)
 
     av_log(NULL, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] rkmppscale release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
     buffer = mpp_frame_get_buffer(framecontext->frame);
-    mpp_buffer_put(buffer);
+    //mpp_buffer_put(buffer);
     mpp_frame_deinit(&framecontext->frame);
     av_buffer_unref(&framecontext->decoder_ref);
     av_buffer_unref(&framecontextref);
