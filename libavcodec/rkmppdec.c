@@ -22,6 +22,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
+#include <malloc.h>
 
 #include "avcodec.h"
 #include "decode.h"
@@ -236,13 +237,11 @@ static int rkmpp_write_data(AVCodecContext *avctx, uint8_t *buffer, int size, in
     ret = decoder->mpi->decode_put_packet(decoder->ctx, packet);
     if (ret != MPP_OK) {
         if (ret == MPP_ERR_BUFFER_FULL) {
-            av_log(avctx, AV_LOG_DEBUG, "Buffer full writing %d bytes to decoder\n", size);
+            //av_log(avctx, AV_LOG_DEBUG, "Buffer full writing %d bytes to decoder\n", size);
             ret = AVERROR(EAGAIN);
         } else
             ret = AVERROR_UNKNOWN;
     }
-    else
-        av_log(avctx, AV_LOG_DEBUG, "Wrote %d bytes to decoder\n", size);
 
     mpp_packet_deinit(&packet);
 
@@ -376,7 +375,7 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
         goto fail;
     }
 
-    ret = mpp_buffer_group_get_internal(&decoder->frame_group, MPP_BUFFER_TYPE_ION);
+    ret = mpp_buffer_group_get_internal(&decoder->frame_group, MPP_BUFFER_TYPE_DRM);//MPP_BUFFER_TYPE_ION
     if (ret) {
        av_log(avctx, AV_LOG_ERROR, "Failed to retrieve buffer group (code = %d)\n", ret);
        ret = AVERROR_UNKNOWN;
@@ -440,7 +439,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
         decoder->eos_reached = 1;
         ret = rkmpp_write_data(avctx, NULL, 0, 0);
         if (ret)
-            av_log(avctx, AV_LOG_ERROR, "Failed to send EOS to decoder (code = %d)\n", ret);
+            av_log(avctx, AV_LOG_ERROR, "Failed to send EOS to rkmpp decoder (code = %d)\n", ret);
         return ret;
     }
 
@@ -451,7 +450,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
                                             avctx->extradata_size,
                                             avpkt->pts);
             if (ret) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to write extradata to decoder (code = %d)\n", ret);
+                av_log(avctx, AV_LOG_ERROR, "Failed to write extradata to rkmpp decoder (code = %d)\n", ret);
                 return ret;
             }
         }
@@ -461,7 +460,7 @@ static int rkmpp_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
     // now send packet
     ret = rkmpp_write_data(avctx, avpkt->data, avpkt->size, avpkt->pts);
     if (ret && ret!=AVERROR(EAGAIN))
-        av_log(avctx, AV_LOG_ERROR, "Failed to write data to decoder (code = %d)\n", ret);
+        av_log(avctx, AV_LOG_ERROR, "Failed to write data to rkmpp decoder (code = %d), not again error!\n", ret);
 
     //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) .\n", __FUNCTION__, __LINE__, ret);
     return ret;
@@ -473,12 +472,13 @@ static void rkmpp_release_frame(void *opaque, uint8_t *data)
     AVBufferRef *framecontextref = (AVBufferRef *)opaque;
     RKMPPFrameContext *framecontext = (RKMPPFrameContext *)framecontextref->data;
 
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
     mpp_frame_deinit(&framecontext->frame);
     av_buffer_unref(&framecontext->decoder_ref);
     av_buffer_unref(&framecontextref);
 
     av_free(desc);
+    //int ret = malloc_trim(0);
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] malloc_trim(%d).\n", __FUNCTION__, __LINE__, ret);
 }
 
 static void rkmpp_setinfo_avframe(AVFrame *frame, MppFrame mppframe) {
@@ -656,7 +656,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             framecontext = (RKMPPFrameContext *)framecontextref->data;
             framecontext->decoder_ref = av_buffer_ref(rk_context->decoder_ref);
             framecontext->frame = mppframe;
-            av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, (void *)mppframe, (void *)frame);
+            //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] decoder mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, (void *)mppframe, (void *)frame);
 
             frame->data[0]  = (uint8_t *)desc;
             frame->buf[0]   = av_buffer_create((uint8_t *)desc, sizeof(*desc), rkmpp_release_frame,
@@ -739,7 +739,7 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
             av_packet_unref(&pkt);
 
             if (ret < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to send packet to decoder (code = %d)\n", ret);
+                av_log(avctx, AV_LOG_ERROR, "Failed to send packet to rkmpp decoder (code = %d)\n", ret);
                 return ret;
             }
         }

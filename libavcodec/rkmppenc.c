@@ -929,6 +929,7 @@ static int rkmpp_get_packet(
     MPP_RET ret = MPP_OK;
     MppMeta meta = NULL;
     int64_t timeCost = 0;
+    char log_buf[256];
 
     mpi = encoder->mpi;
     ctx = encoder->ctx;
@@ -945,7 +946,6 @@ static int rkmpp_get_packet(
             // write packet to file here
             void *ptr   = mpp_packet_get_pos(*packet);
             size_t len  = mpp_packet_get_length(*packet);
-            char log_buf[256];
             RK_S32 log_size = sizeof(log_buf) - 1;
             RK_S32 log_len = 0;
 
@@ -974,22 +974,22 @@ static int rkmpp_get_packet(
                     pkt->data[0], pkt->data[1], pkt->data[2], pkt->data[3], pkt->data[4]);
             encoder->timeLast = encoder->timeNow;
 
-            log_len += snprintf(log_buf + log_len, log_size - log_len,
-                                "encoded frame %-4d", encoder->frame_count);
+            /*log_len += snprintf(log_buf + log_len, log_size - log_len,
+                                "encoded frame %-4d", encoder->frame_count);*/
 
             /* for low delay partition encoding */
             if (mpp_packet_is_partition(*packet)) {
                 eoi = mpp_packet_is_eoi(*packet);
 
-                log_len += snprintf(log_buf + log_len, log_size - log_len,
-                                    " pkt %d", encoder->frm_pkt_cnt);
+                /*log_len += snprintf(log_buf + log_len, log_size - log_len,
+                                    " pkt %d", encoder->frm_pkt_cnt);*/
                 encoder->frm_pkt_cnt = (eoi) ? (0) : (encoder->frm_pkt_cnt + 1);
             }
 
-            log_len += snprintf(log_buf + log_len, log_size - log_len,
-                                " size %-7zu", len);
+            /*log_len += snprintf(log_buf + log_len, log_size - log_len,
+                                " size %-7zu", len);*/
 
-            if (mpp_packet_has_meta(*packet)) {
+            if (0 && mpp_packet_has_meta(*packet)) {
                 RK_S32 temporal_id = 0;
                 RK_S32 lt_idx = -1;
                 RK_S32 avg_qp = -1;
