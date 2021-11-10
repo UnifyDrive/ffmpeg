@@ -76,8 +76,9 @@
 #endif
 
 
-static const enum AVPixelFormat supported_formats[] = {
+static const enum AVPixelFormat rkmpp_scale_supported_formats[] = {
     AV_PIX_FMT_DRM_PRIME,
+    AV_PIX_FMT_DRM_PRIME_P010BE,
 };
 
 #define DIV_UP(a, b) ( ((a) + (b) - 1) / (b) )
@@ -176,6 +177,19 @@ typedef struct RKMPPScaleContext {
 } RKMPPScaleContext;
 
 static int rkmppscale_config_props(AVFilterLink *outlink);
+
+static RgaSURF_FORMAT rkmppscale_avpix_format_to_rga_format(int av_fmt) {
+    switch (av_fmt) {
+        case AV_PIX_FMT_DRM_PRIME:
+            return RK_FORMAT_YCbCr_420_SP;
+#ifdef DRM_FORMAT_NV12_10
+        case AV_PIX_FMT_DRM_PRIME_P010BE:
+            return RK_FORMAT_YCbCr_420_SP_10B;
+#endif
+        default:
+            return -1;
+    }
+}
 
 static int rkmppscale_check_exprs(AVFilterContext *ctx)
 {
@@ -310,16 +324,18 @@ static void rkmppscale_uninit(AVFilterContext *ctx)
 
 static int rkmppscale_query_formats(AVFilterContext *ctx)
 {
+    int ret = 0;
     static const enum AVPixelFormat pixel_formats[] = {
-        AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_NONE,
+        AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_DRM_PRIME_P010BE, AV_PIX_FMT_NONE,
     };
 
-    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Support AV_PIX_FMT_DRM_PRIME to scale.\n", __FUNCTION__, __LINE__);
     AVFilterFormats *pix_fmts = ff_make_format_list(pixel_formats);
     if (!pix_fmts)
         return AVERROR(ENOMEM);
 
-    return ff_set_common_formats(ctx, pix_fmts);
+    ret = ff_set_common_formats(ctx, pix_fmts);
+    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] ret = %d.\n", __FUNCTION__, __LINE__, ret);
+    return ret;
 }
 
 
@@ -328,8 +344,8 @@ static int rkmpp_format_is_supported(enum AVPixelFormat fmt)
     int i;
 
     av_log(NULL, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] need fmt=%d.\n", __FUNCTION__, __LINE__, fmt);
-    for (i = 0; i < FF_ARRAY_ELEMS(supported_formats); i++)
-        if (supported_formats[i] == fmt)
+    for (i = 0; i < FF_ARRAY_ELEMS(rkmpp_scale_supported_formats); i++)
+        if (rkmpp_scale_supported_formats[i] == fmt)
             return 1;
     return 0;
 }
@@ -446,12 +462,12 @@ fail:
     return ret;
 }
 
-static uint32_t rkmppscale_get_frameformat(MppFrameFormat mppformat)
+static uint32_t rkmppscale_mpp_format_to_drm_format(MppFrameFormat mppformat)
 {
     switch (mppformat) {
     case MPP_FMT_YUV420SP:          return DRM_FORMAT_NV12;
 #ifdef DRM_FORMAT_NV12_10
-    case MPP_FMT_YUV420SP_10BIT:    return DRM_FORMAT_NV12_10;
+    case MPP_FMT_YUV420SP_10BIT:    return DRM_FORMAT_NV12_10 | DRM_FORMAT_BIG_ENDIAN;
 #endif
     default:                        return 0;
     }
@@ -464,7 +480,7 @@ static void rkmppscale_release_frame(void *opaque, uint8_t *data)
     RKMPPFrameContext *framecontext = (RKMPPFrameContext *)framecontextref->data;
     MppBuffer buffer = NULL;
 
-    av_log(NULL, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] rkmppscale release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
+    //av_log(NULL, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] rkmppscale release mppframe(%p).\n", __FUNCTION__, __LINE__, (void *)(framecontext->frame));
     buffer = mpp_frame_get_buffer(framecontext->frame);
     //mpp_buffer_put(buffer);
     mpp_frame_deinit(&framecontext->frame);
@@ -476,7 +492,7 @@ static void rkmppscale_release_frame(void *opaque, uint8_t *data)
 
 static int call_resize_kernel(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
 {
-    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
+    //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     RKMPPScaleContext *s = ctx->priv;
     AVHWFramesContext *frames_ctx = NULL;
     AVDRMFrameDescriptor *desc = NULL;
@@ -504,7 +520,7 @@ static int call_resize_kernel(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
     src_info.fd = mpp_buffer_get_fd(srcBuffer);
     src_info.mmuFlag = 1;
     rga_set_rect(&src_info.rect, 0, 0, s->src_w, s->src_h,
-                 srcHor_stride, srcVer_stride, RK_FORMAT_YCbCr_420_SP);
+                 srcHor_stride, srcVer_stride, rkmppscale_avpix_format_to_rga_format(in->format));
 
     destHor_stride = MPP_ALIGN(s->dest_w, 16);
     destVer_stride = MPP_ALIGN(s->dest_h, 16);
@@ -544,7 +560,7 @@ static int call_resize_kernel(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
     mpp_frame_set_height(destMppframe, s->dest_h);
     mpp_frame_set_hor_stride(destMppframe, destHor_stride);
     mpp_frame_set_ver_stride(destMppframe, destVer_stride);
-    mpp_frame_set_fmt(destMppframe, mpp_frame_get_fmt(srcMppframe));
+    mpp_frame_set_fmt(destMppframe, MPP_FMT_YUV420SP);
     mpp_frame_set_pts(destMppframe, in->pts);
     mpp_frame_set_buffer(destMppframe, destBuffer);
 
@@ -569,7 +585,7 @@ static int call_resize_kernel(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
 
     desc->nb_layers = 1;
     layer = &desc->layers[0];
-    layer->format = rkmppscale_get_frameformat(mpp_frame_get_fmt(srcMppframe));
+    layer->format = rkmppscale_mpp_format_to_drm_format(mpp_frame_get_fmt(srcMppframe));
     layer->nb_planes = 2;
 
     layer->planes[0].object_index = 0;
@@ -592,7 +608,7 @@ static int call_resize_kernel(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
     destFramecontext = (RKMPPFrameContext *)destFramecontextref->data;
     destFramecontext->decoder_ref = av_buffer_ref(framecontext->decoder_ref);
     destFramecontext->frame = destMppframe;
-    av_log(NULL, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] rkmppscale mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, (void *)destMppframe, (void *)out);
+    //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] rkmppscale mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, (void *)destMppframe, (void *)out);
 
     out->data[0]  = (uint8_t *)desc;
     out->buf[0]   = av_buffer_create((uint8_t *)desc, sizeof(*desc), rkmppscale_release_frame,
@@ -644,7 +660,7 @@ static void rkmppscale_setinfo_avframe(AVFrame *outframe, AVFrame *inframe) {
 static int rkmppscale_resize(AVFilterContext *ctx,
                             AVFrame *out, AVFrame *in)
 {
-    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
+    //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     RKMPPScaleContext *s = ctx->priv;
     int ret = 0;
 
@@ -668,7 +684,7 @@ static int rkmppscale_resize(AVFilterContext *ctx,
 
 static int rkmppscale_scale(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
 {
-    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
+    //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     RKMPPScaleContext *s = ctx->priv;
     AVFilterLink *outlink = ctx->outputs[0];
     int ret;
@@ -697,7 +713,7 @@ static int rkmppscale_filter_frame(AVFilterLink *link, AVFrame *in)
     AVFrame *out = NULL;
     int ret = 0;
 
-    av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
+    //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     if (s->passthrough)
         return ff_filter_frame(outlink, in);
 

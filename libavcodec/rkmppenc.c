@@ -190,15 +190,19 @@ static MppCodingType rkmpp_get_codingtype(AVCodecContext *avctx)
     }
 }
 
-static MppFrameFormat rkmpp_get_frameformat(enum AVPixelFormat format)
+static MppFrameFormat rkmpp_avpix_format_to_mpp_format(AVCodecContext *avctx, enum AVPixelFormat format)
 {
     switch (format) {
         case AV_PIX_FMT_YUV420P:            return MPP_FMT_YUV420P;
         case AV_PIX_FMT_NV12:               return MPP_FMT_YUV420SP;
         case AV_PIX_FMT_DRM_PRIME:          return MPP_FMT_YUV420SP;
+        case AV_PIX_FMT_DRM_PRIME_P010BE:
 #ifdef DRM_FORMAT_NV12_10
-        //case AV_PIX_FMT_DRM_PRIME:    return MPP_FMT_YUV420SP_10BIT;//DRM_FORMAT_NV12_10;
+                return MPP_FMT_YUV420SP;// MPP_FMT_YUV420SP_10BIT not support enc. and convert in scale_rkmpp
+#else
+                return MPP_FMT_BUTT;
 #endif
+
         default:                        return MPP_FMT_BUTT;
     }
 }
@@ -206,10 +210,10 @@ static MppFrameFormat rkmpp_get_frameformat(enum AVPixelFormat format)
 static int rkmpp_close_encoder(AVCodecContext *avctx)
 {
     RKMPPEncodeContext *rk_context = avctx->priv_data;
-    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref encoder_ref.\n", __FUNCTION__, __LINE__);
+    av_log(avctx, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref encoder_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&rk_context->encoder_ref);
     rk_context->encoder_ref = NULL;
-    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] End unref encoder_ref and set to NULL.\n", __FUNCTION__, __LINE__);
+    av_log(avctx, AV_LOG_ERROR, "[zspace] [%s:%d] End unref encoder_ref and set to NULL.\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -269,7 +273,7 @@ static int rkmpp_get_encode_parameters(
     encoder->height = avctx->height;
     encoder->hor_stride = (MPP_ALIGN(avctx->width, 16));
     encoder->ver_stride = (MPP_ALIGN(avctx->height, 16));
-    encoder->fmt = rkmpp_get_frameformat(avctx->pix_fmt);
+    encoder->fmt = rkmpp_avpix_format_to_mpp_format(avctx, avctx->pix_fmt);
 
     encoder->rc_mode = (RK_S32)(avctx->bit_rate_tolerance != avctx->bit_rate?MPP_ENC_RC_MODE_VBR:MPP_ENC_RC_MODE_CBR);
     encoder->num_frames = 1;
@@ -334,8 +338,8 @@ static int rkmpp_get_encode_parameters(
 
     av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] timebase.num=%d,timebase.den=%d\n", avctx->time_base.num, avctx->time_base.den);
     av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] avctx->framerate.num=%d,avctx->framerate.den=%d\n", avctx->framerate.num, avctx->framerate.den);
-    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d\n", encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME,
-        AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
+    av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] encoder->fmt=%x,avctx->pix_fmt=%d, AV_PIX_FMT_DRM_PRIME=%d, AV_PIX_FMT_YUV420P=%d,AV_PIX_FMT_NV12=%d, AV_PIX_FMT_YUV420P10LE=%d, AV_PIX_FMT_P010LE=%d\n", 
+        encoder->fmt, avctx->pix_fmt, AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12, AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_P010LE);
     av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace]Get parameters encoder->width=%d,encoder->height=%d, encoder->hor_stride=%d, encoder->ver_stride=%d, encoder->rc_mode=%d, encoder->bps=%d, encoder->gop_len=%d, encoder->profile=%d, encoder->level=%d, encoder->fps_in_num=%d\n", 
         encoder->width, encoder->height, encoder->hor_stride, encoder->ver_stride, encoder->rc_mode, encoder->bps, encoder->gop_len, encoder->profile, encoder->level, encoder->fps_in_num);
 
@@ -838,7 +842,7 @@ static int rkmpp_send_frame(AVCodecContext *avctx,
         av_log(avctx, AV_LOG_ERROR, "[zspace] Meet NUll inframe, set frm_eof = 1\n");
     }else {
         encoder->timeNow = av_gettime_relative();
-        if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME && inframe) {
+        if ((avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME || avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME_P010BE) && inframe) {
             framecontextref = (AVBufferRef *) av_buffer_get_opaque(inframe->buf[0]);
             framecontext = (RKMPPFrameContext *)framecontextref->data;
             rkmppframe = framecontext->frame;
@@ -1139,6 +1143,7 @@ static const enum AVPixelFormat rkmpp_enc_avc_pix_fmts[] = {
     AV_PIX_FMT_DRM_PRIME,
     AV_PIX_FMT_NV12,
     AV_PIX_FMT_YUV420P,
+    AV_PIX_FMT_DRM_PRIME_P010BE,
     AV_PIX_FMT_NONE
 };
 

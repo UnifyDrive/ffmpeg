@@ -673,6 +673,7 @@ const HWContextType ff_hwcontext_type_drm = {
 
     .pix_fmts = (const enum AVPixelFormat[]) {
         AV_PIX_FMT_DRM_PRIME,
+        AV_PIX_FMT_DRM_PRIME_P010BE,
         AV_PIX_FMT_NONE
     },
 };

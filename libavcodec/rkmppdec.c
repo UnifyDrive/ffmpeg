@@ -48,30 +48,35 @@ static int rga_supported = -1;
 #define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_INFO
 #endif
 
+#define RKMPP_CASE_RETURN(a, b) case a: return b
 
-static int get_rga_format(int av_fmt) {
+static RgaSURF_FORMAT rkmpp_avpix_format_to_rga_format(int av_fmt) {
     switch (av_fmt) {
         case AV_PIX_FMT_NV12:
             return RK_FORMAT_YCbCr_420_SP;
         case AV_PIX_FMT_YUV420P:
             return RK_FORMAT_YCbCr_420_P;
+#ifdef DRM_FORMAT_NV12_10
+        case AV_PIX_FMT_P010BE:
+            return RK_FORMAT_YCbCr_420_SP_10B;
+#endif
         default:
             return -1;
     }
 }
 
 // only pixel conversion, keep width/height
-static int rkmpp_write_nv12(MppBuffer mpp_buffer, int mpp_vir_width,
+static int rkmpp_data_mppframe_convertTo_avframe(int src_rga_format, MppBuffer mpp_buffer, int mpp_vir_width,
                             int mpp_vir_height, AVFrame* dst_frame) {
     rga_info_t src_info = {0};
     rga_info_t dst_info = {0};
     int width = dst_frame->width - (dst_frame->crop_right + dst_frame->crop_left);
     int height = dst_frame->height - (dst_frame->crop_bottom + dst_frame->crop_top);
     int possible_height;
-    int rga_format = get_rga_format(dst_frame->format);
-    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dst_frame->format=%d.\n", __FUNCTION__, __LINE__, dst_frame->format);
+    int dest_rga_format = rkmpp_avpix_format_to_rga_format(dst_frame->format);
+    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dst_frame->format=%d.\n", __FUNCTION__, __LINE__, dst_frame->format);
 
-    if (rga_format < 0)
+    if (dest_rga_format < 0)
         return AVERROR(EINVAL);
 
     if (rga_supported <= 0)
@@ -93,14 +98,14 @@ static int rkmpp_write_nv12(MppBuffer mpp_buffer, int mpp_vir_width,
     src_info.mmuFlag = 1;
     // mpp decoder always return nv12(yuv420sp)
     rga_set_rect(&src_info.rect, 0, 0, width, height,
-                 mpp_vir_width, mpp_vir_height, RK_FORMAT_YCbCr_420_SP);
+                 mpp_vir_width, mpp_vir_height, src_rga_format);//RK_FORMAT_YCbCr_420_SP
 
     dst_info.fd = -1;
     // dst_frame data[*] must be continuous
     dst_info.virAddr = dst_frame->data[0];
     dst_info.mmuFlag = 1;
     rga_set_rect(&dst_info.rect, dst_frame->crop_left, dst_frame->crop_top, width, height, dst_frame->linesize[0],
-        possible_height, rga_format);
+        possible_height, dest_rga_format);
     if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
         av_log(NULL, AV_LOG_ERROR, "Failed to do rga blit\n");
         goto bail;
@@ -201,14 +206,36 @@ static MppCodingType rkmpp_get_codingtype(AVCodecContext *avctx)
     }
 }
 
-static uint32_t rkmpp_get_drmformat(MppFrameFormat mppformat)
+static uint32_t rkmpp_mpp_format_to_drm_format(MppFrameFormat mppformat)
 {
     switch (mppformat) {
     case MPP_FMT_YUV420SP:          return DRM_FORMAT_NV12;
 #ifdef DRM_FORMAT_NV12_10
-    case MPP_FMT_YUV420SP_10BIT:    return DRM_FORMAT_NV12_10;
+    case MPP_FMT_YUV420SP_10BIT:
+        return DRM_FORMAT_NV12_10 | DRM_FORMAT_BIG_ENDIAN;
 #endif
     default:                        return 0;
+    }
+}
+
+static RgaSURF_FORMAT
+rkmpp_mpp_format_to_rga_format (MppFrameFormat mpp_format)
+{
+    switch (mpp_format) {
+        RKMPP_CASE_RETURN (MPP_FMT_YUV420P, RK_FORMAT_YCbCr_420_P);
+        RKMPP_CASE_RETURN (MPP_FMT_YUV420SP, RK_FORMAT_YCbCr_420_SP);
+        RKMPP_CASE_RETURN (MPP_FMT_YUV420SP_VU, RK_FORMAT_YCrCb_420_SP);
+        RKMPP_CASE_RETURN (MPP_FMT_YUV420SP_10BIT, RK_FORMAT_YCbCr_420_SP_10B);
+        RKMPP_CASE_RETURN (MPP_FMT_YUV422P, RK_FORMAT_YCbCr_422_P);
+        RKMPP_CASE_RETURN (MPP_FMT_YUV422SP, RK_FORMAT_YCbCr_422_SP);
+        RKMPP_CASE_RETURN (MPP_FMT_YUV422SP_VU, RK_FORMAT_YCrCb_422_SP);
+        //RKMPP_CASE_RETURN (MPP_FMT_BGR565LE, RK_FORMAT_RGB_565);
+        RKMPP_CASE_RETURN (MPP_FMT_BGR888, RK_FORMAT_BGR_888);
+        RKMPP_CASE_RETURN (MPP_FMT_RGB888, RK_FORMAT_RGB_888);
+        RKMPP_CASE_RETURN (MPP_FMT_BGRA8888, RK_FORMAT_BGRA_8888);
+        RKMPP_CASE_RETURN (MPP_FMT_RGBA8888, RK_FORMAT_RGBA_8888);
+        default:
+            return RK_FORMAT_UNKNOWN;
     }
 }
 
@@ -251,10 +278,10 @@ static int rkmpp_write_data(AVCodecContext *avctx, uint8_t *buffer, int size, in
 static int rkmpp_close_decoder(AVCodecContext *avctx)
 {
     RKMPPDecodeContext *rk_context = avctx->priv_data;
-    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref decoder_ref.\n", __FUNCTION__, __LINE__);
+    av_log(avctx, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref decoder_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&rk_context->decoder_ref);
     rk_context->decoder_ref = NULL;
-    av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] End unref decoder_ref and set to NULL.\n", __FUNCTION__, __LINE__);
+    av_log(avctx, AV_LOG_ERROR, "[zspace] [%s:%d] End unref decoder_ref and set to NULL.\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -302,6 +329,9 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
     } else {
         if (avctx->pix_fmt == AV_PIX_FMT_NONE || avctx->pix_fmt == AV_PIX_FMT_YUV420P) {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        }else if(avctx->pix_fmt == AV_PIX_FMT_YUV420P10LE){
+            //avctx->pix_fmt = AV_PIX_FMT_P010BE;
+            avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME_P010BE;
         }else {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }
@@ -550,10 +580,10 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             }
 
             mppformat = mpp_frame_get_fmt(mppframe);
-            drmformat = rkmpp_get_drmformat(mppformat);
+            drmformat = rkmpp_mpp_format_to_drm_format(mppformat);
 
             hwframes = (AVHWFramesContext*)decoder->frames_ref->data;
-            hwframes->format    = AV_PIX_FMT_DRM_PRIME;
+            hwframes->format    = (mppformat == MPP_FMT_YUV420SP_10BIT)?AV_PIX_FMT_DRM_PRIME_P010BE:AV_PIX_FMT_DRM_PRIME;
             //hwframes->sw_format = drmformat == DRM_FORMAT_NV12 ? AV_PIX_FMT_NV12 : AV_PIX_FMT_NONE;
             hwframes->sw_format = av_drm_get_pixfmt(drmformat);
             hwframes->width     = avctx->width;
@@ -564,6 +594,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
                 goto fail;
             }
 
+            avctx->sw_pix_fmt = hwframes->sw_format;
             // here decoder is fully initialized, we need to feed it again with data
             ret = AVERROR(EAGAIN);
             goto fail;
@@ -595,12 +626,12 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
         frame->crop_bottom      = avctx->coded_height - mpp_frame_get_height(mppframe);
 
         mppformat = mpp_frame_get_fmt(mppframe);
-        drmformat = rkmpp_get_drmformat(mppformat);
+        drmformat = rkmpp_mpp_format_to_drm_format(mppformat);
 
         // now setup the frame buffer info
         buffer = mpp_frame_get_buffer(mppframe);
         if (buffer) {
-            if (avctx->pix_fmt != AV_PIX_FMT_DRM_PRIME) {
+            if (avctx->pix_fmt != AV_PIX_FMT_DRM_PRIME && avctx->pix_fmt != AV_PIX_FMT_DRM_PRIME_P010BE) {
                 if (avctx->get_buffer2 == avcodec_default_get_buffer2) {
                     // firefox path
                     ret = rkmpp_get_continue_video_buffer(frame);
@@ -614,7 +645,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
                 }
                 rkmpp_setinfo_avframe(frame, mppframe);
                 // Do pixel conversion, TODO: implement rga AVFilter
-                ret = rkmpp_write_nv12(buffer,
+                ret = rkmpp_data_mppframe_convertTo_avframe(rkmpp_mpp_format_to_rga_format(mppformat), buffer,
                     mpp_frame_get_hor_stride(mppframe),
                     mpp_frame_get_ver_stride(mppframe), frame);
                 goto fail; // alway release mpp resource
@@ -801,6 +832,8 @@ static const AVCodecHWConfigInternal *const rkmpp_hw_configs[] = {
         .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_DRM_PRIME, \
                                                          AV_PIX_FMT_NV12, \
                                                          AV_PIX_FMT_YUV420P, \
+                                                         AV_PIX_FMT_P010BE, \
+                                                         AV_PIX_FMT_DRM_PRIME_P010BE, \
                                                          AV_PIX_FMT_NONE}, \
         .hw_configs     = rkmpp_hw_configs, \
         .bsfs           = BSFS, \
