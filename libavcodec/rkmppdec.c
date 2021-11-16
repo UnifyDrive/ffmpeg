@@ -36,14 +36,14 @@
 #include "rkmppdec.h"
 
 #define RECEIVE_FRAME_TIMEOUT   30
-#define FRAMEGROUP_MAX_FRAMES   16
+#define FRAMEGROUP_MAX_FRAMES   24
 #define INPUT_MAX_PACKETS       4
 
 static int rga_supported = -1;
 
 #define ZSPACE_DECODER_DEBUG 1
 #if ZSPACE_DECODER_DEBUG
-#define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_WARNING
+#define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_ERROR
 #else
 #define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_INFO
 #endif
@@ -74,7 +74,7 @@ static int rkmpp_data_mppframe_convertTo_avframe(int src_rga_format, MppBuffer m
     int height = dst_frame->height - (dst_frame->crop_bottom + dst_frame->crop_top);
     int possible_height;
     int dest_rga_format = rkmpp_avpix_format_to_rga_format(dst_frame->format);
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dst_frame->format=%d.\n", __FUNCTION__, __LINE__, dst_frame->format);
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dst_frame->format=%d.\n", __FUNCTION__, __LINE__, dst_frame->format);
 
     if (dest_rga_format < 0)
         return AVERROR(EINVAL);
@@ -256,6 +256,7 @@ static int rkmpp_write_data(AVCodecContext *avctx, uint8_t *buffer, int size, in
     if (pts == AV_NOPTS_VALUE || !pts)
         pts = avctx->reordered_opaque;
 
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Set pts=%lld.\n", __FUNCTION__, __LINE__, pts);
     mpp_packet_set_pts(packet, pts);
 
     if (!buffer)
@@ -300,6 +301,7 @@ static void rkmpp_release_decoder(void *opaque, uint8_t *data)
         decoder->frame_group = NULL;
     }
 
+    av_packet_unref(&(decoder->pkt));
     av_log(NULL, AV_LOG_ERROR, "[zspace] [%s:%d] Begin unref frames_ref and device_ref.\n", __FUNCTION__, __LINE__);
     av_buffer_unref(&decoder->frames_ref);
     decoder->frames_ref = NULL;
@@ -515,6 +517,7 @@ static void rkmpp_setinfo_avframe(AVFrame *frame, MppFrame mppframe) {
     int mode;
 
     frame->pts              = mpp_frame_get_pts(mppframe);
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Get frame->pts=%lld.\n", __FUNCTION__, __LINE__, frame->pts);
 #if FF_API_PKT_PTS
     FF_DISABLE_DEPRECATION_WARNINGS
     frame->pkt_pts          = frame->pts;
@@ -746,7 +749,7 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     RKMPPDecodeContext *rk_context = avctx->priv_data;
     RKMPPDecoder *decoder = (RKMPPDecoder *)rk_context->decoder_ref->data;
     int ret = MPP_NOK;
-    AVPacket pkt = {0};
+    //AVPacket pkt = {0};
     RK_S32 usedslots, freeslots;
 
     //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Begin .\n", __FUNCTION__, __LINE__);
@@ -760,28 +763,27 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
         freeslots = INPUT_MAX_PACKETS - usedslots;
         if (freeslots > 0) {
-            ret = ff_decode_get_packet(avctx, &pkt);
-            if (ret < 0 && ret != AVERROR_EOF) {
-                //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Retrun no packet need to decode(%d) .\n", __FUNCTION__, __LINE__, ret);
-                return ret;
+            if (decoder->pkt.buf == NULL) {
+                ret = ff_decode_get_packet(avctx, &(decoder->pkt));
+                if (ret < 0 && ret != AVERROR_EOF) {
+                    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Retrun no packet need to decode(%d) .\n", __FUNCTION__, __LINE__, ret);
+                    return ret;
+                }
             }
 
-            ret = rkmpp_send_packet(avctx, &pkt);
-            av_packet_unref(&pkt);
-
+            ret = rkmpp_send_packet(avctx, &(decoder->pkt));
             if (ret < 0) {
                 av_log(avctx, AV_LOG_ERROR, "Failed to send packet to rkmpp decoder (code = %d)\n", ret);
-                return ret;
+                goto try_get_frame;
             }
+            av_packet_unref(&(decoder->pkt));
         }
 
-        // make sure we keep decoder full
-        if (0 && freeslots > 1)
-            return AVERROR(EAGAIN);
     }
 
+try_get_frame:
     ret = rkmpp_retrieve_frame(avctx, frame);
-    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) frame(%p) .\n", __FUNCTION__, __LINE__, ret, frame);
+    //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] End(%d) frame->pts(%lld) .\n", __FUNCTION__, __LINE__, ret, frame->pts);
 
     return ret;
 }
