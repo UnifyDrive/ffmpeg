@@ -414,7 +414,7 @@ static int rkmppscale_config_props(AVFilterLink *outlink)
 
     av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     s->hwctx = device_hwctx;
-    s->passthrough = 1;
+    s->passthrough = 0;
 
 
     if ((ret = ff_scale_eval_dimensions(s,
