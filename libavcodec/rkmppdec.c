@@ -85,12 +85,24 @@ static int rkmpp_data_mppframe_convertTo_avframe(int src_rga_format, MppBuffer m
     possible_height =
         (dst_frame->data[1] - dst_frame->data[0]) / dst_frame->linesize[0];
 
+    /*av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] w:h=%d:%d.\n", __FUNCTION__, __LINE__, width, height);
+    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] dw:dh=%d:%d.\n", __FUNCTION__, __LINE__, dst_frame->width, dst_frame->height);
+    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] virw:virh=%d:%d.\n", __FUNCTION__, __LINE__, mpp_vir_width, mpp_vir_height);
+    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] linesize[0]:possible_height=%d:%d.\n", __FUNCTION__, __LINE__, dst_frame->linesize[0], possible_height);*/
+
     if ((dst_frame->format == AV_PIX_FMT_YUV420P) &&
         (dst_frame->linesize[0] != 2 * dst_frame->linesize[1] ||
          dst_frame->linesize[1] != dst_frame->linesize[2] ||
          dst_frame->data[1] - dst_frame->data[0] !=
          4 * (dst_frame->data[2] - dst_frame->data[1]))) {
-        av_log(NULL, AV_LOG_DEBUG, "dst frame memory is not continuous for planes, fall down to soft copy\n");
+        //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "dst frame memory is not continuous for planes, AV_PIX_FMT_YUV420P\n");
+        goto bail; // mostly is not continuous memory
+    }
+
+    if ((dst_frame->format == AV_PIX_FMT_NV12) &&
+        (dst_frame->linesize[0] != dst_frame->linesize[1] ||
+         possible_height != height)) {
+        //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "dst frame memory is not continuous for planes, AV_PIX_FMT_NV12\n");
         goto bail; // mostly is not continuous memory
     }
 
@@ -106,6 +118,7 @@ static int rkmpp_data_mppframe_convertTo_avframe(int src_rga_format, MppBuffer m
     dst_info.mmuFlag = 1;
     rga_set_rect(&dst_info.rect, dst_frame->crop_left, dst_frame->crop_top, width, height, dst_frame->linesize[0],
         possible_height, dest_rga_format);
+
     if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
         av_log(NULL, AV_LOG_ERROR, "Failed to do rga blit\n");
         goto bail;
@@ -113,7 +126,7 @@ static int rkmpp_data_mppframe_convertTo_avframe(int src_rga_format, MppBuffer m
     return 0;
 
 bail:
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Pull out data from VPU use memcpy!.\n", __FUNCTION__, __LINE__);
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Pull out data from VPU use memcpy!.\n", __FUNCTION__, __LINE__);
     do {
         int i;
         uint8_t* src_ptr = (uint8_t*) mpp_buffer_get_ptr(mpp_buffer);
@@ -566,10 +579,10 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
             avctx->width = mpp_frame_get_width(mppframe);
             avctx->height = mpp_frame_get_height(mppframe);
             // chromium will align u/v width height to 32
-            //avctx->coded_width = FFALIGN(avctx->width, 64);
-            //avctx->coded_height = FFALIGN(avctx->height, 64);
-            avctx->coded_width = avctx->width;
-            avctx->coded_height = avctx->height;
+            //avctx->coded_width = FFALIGN(avctx->width, 16);
+            //avctx->coded_height = FFALIGN(avctx->height, 16);
+            //avctx->coded_width = avctx->width;
+            //avctx->coded_height = avctx->height;
 
             decoder->mpi->control(decoder->ctx, MPP_DEC_SET_INFO_CHANGE_READY, NULL);
 
@@ -621,12 +634,12 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
 
         // setup general frame fields
         frame->format           = avctx->pix_fmt;
-        frame->width            = avctx->coded_width;
-        frame->height           = avctx->coded_height;
+        frame->width            = avctx->width;
+        frame->height           = avctx->height;
         frame->crop_left        = 0;
-        frame->crop_right       = avctx->coded_width - mpp_frame_get_width(mppframe);
+        frame->crop_right       = avctx->width - mpp_frame_get_width(mppframe);
         frame->crop_top         = 0;
-        frame->crop_bottom      = avctx->coded_height - mpp_frame_get_height(mppframe);
+        frame->crop_bottom      = avctx->height - mpp_frame_get_height(mppframe);
 
         mppformat = mpp_frame_get_fmt(mppframe);
         drmformat = rkmpp_mpp_format_to_drm_format(mppformat);
@@ -640,10 +653,11 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
                     ret = rkmpp_get_continue_video_buffer(frame);
                 }
                 else {
-                    ret = ff_get_buffer(avctx, frame, 0);
+                    //ret = ff_get_buffer(avctx, frame, 0);
+                    ret = rkmpp_get_continue_video_buffer(frame);
                 }
                 if (ret) {
-                    av_log(avctx, AV_LOG_ERROR, "Fail to alloc frame.\n");
+                    av_log(avctx, AV_LOG_ERROR, "[zspace] [%s:%d] Fail to alloc frame buffer.\n", __FUNCTION__, __LINE__);
                     goto fail;
                 }
                 rkmpp_setinfo_avframe(frame, mppframe);
