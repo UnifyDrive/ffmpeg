@@ -412,7 +412,11 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
         goto fail;
     }
 
-    paramS64 = RECEIVE_FRAME_TIMEOUT;
+    if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME || avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME_P010BE) {
+        paramS64 = RECEIVE_FRAME_TIMEOUT * 10;
+    }else {
+        paramS64 = RECEIVE_FRAME_TIMEOUT;
+    }
     ret = decoder->mpi->control(decoder->ctx, MPP_SET_OUTPUT_BLOCK_TIMEOUT, &paramS64);
     if (ret != MPP_OK) {
         av_log(avctx, AV_LOG_ERROR, "Failed to set block timeout on MPI (code = %d).\n", ret);
