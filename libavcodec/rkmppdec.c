@@ -35,9 +35,9 @@
 
 #include "rkmppdec.h"
 
-#define RECEIVE_FRAME_TIMEOUT   30
-#define FRAMEGROUP_MAX_FRAMES   24
-#define INPUT_MAX_PACKETS       4
+#define RECEIVE_FRAME_TIMEOUT   3
+#define FRAMEGROUP_MAX_FRAMES   16
+#define INPUT_MAX_PACKETS       64
 
 static int rga_supported = -1;
 
