@@ -35,9 +35,9 @@
 
 #include "rkmppdec.h"
 
-#define RECEIVE_FRAME_TIMEOUT   3
+#define RECEIVE_FRAME_TIMEOUT   10
 #define FRAMEGROUP_MAX_FRAMES   16
-#define INPUT_MAX_PACKETS       64
+#define INPUT_MAX_PACKETS       16
 
 static int rga_supported = -1;
 
@@ -347,14 +347,15 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
         }else if(avctx->pix_fmt == AV_PIX_FMT_YUV420P10LE){
             //avctx->pix_fmt = AV_PIX_FMT_P010BE;
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME_P010BE;
+            //avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
         }else {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }
     }
     avctx->sw_pix_fmt = (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME) ?
                             AV_PIX_FMT_DRM_PRIME : avctx->pix_fmt;
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Out avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d.\n", __FUNCTION__, __LINE__,
-        avctx->pix_fmt, avctx->sw_pix_fmt, avctx->codec_tag);
+    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Out avctx->pix_fmt=%d avctx->sw_pix_fmt=%d avctx->codec_tag=%d width=%d.\n", __FUNCTION__, __LINE__,
+        avctx->pix_fmt, avctx->sw_pix_fmt, avctx->codec_tag, avctx->width);
 
     // create a decoder and a ref to it
     decoder = av_mallocz(sizeof(RKMPPDecoder));
@@ -412,11 +413,20 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
         goto fail;
     }
 
+    decoder->input_max_packets = INPUT_MAX_PACKETS;
     if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME || avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME_P010BE) {
-        paramS64 = RECEIVE_FRAME_TIMEOUT * 10;
+        paramS64 = (RECEIVE_FRAME_TIMEOUT * 10) > 30?30:(RECEIVE_FRAME_TIMEOUT * 7);
+        if (avctx->width > 1920) {
+            decoder->input_max_packets = INPUT_MAX_PACKETS / 4;
+        }
     }else {
         paramS64 = RECEIVE_FRAME_TIMEOUT;
+        if (avctx->width > 1920) {
+            paramS64 = RECEIVE_FRAME_TIMEOUT * 2;
+            decoder->input_max_packets = INPUT_MAX_PACKETS / 4;
+        }
     }
+    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Timeout paramS64 = %lld.\n", __FUNCTION__, __LINE__, paramS64);
     ret = decoder->mpi->control(decoder->ctx, MPP_SET_OUTPUT_BLOCK_TIMEOUT, &paramS64);
     if (ret != MPP_OK) {
         av_log(avctx, AV_LOG_ERROR, "Failed to set block timeout on MPI (code = %d).\n", ret);
@@ -779,7 +789,7 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
             return ret;
         }
 
-        freeslots = INPUT_MAX_PACKETS - usedslots;
+        freeslots = decoder->input_max_packets - usedslots;
         if (freeslots > 0) {
             if (decoder->pkt.buf == NULL) {
                 ret = ff_decode_get_packet(avctx, &(decoder->pkt));
@@ -787,6 +797,8 @@ static int rkmpp_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                     //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Retrun no packet need to decode(%d) .\n", __FUNCTION__, __LINE__, ret);
                     return ret;
                 }
+            }else {
+                av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] Resend packet! .\n", __FUNCTION__, __LINE__);
             }
 
             ret = rkmpp_send_packet(avctx, &(decoder->pkt));
@@ -818,6 +830,7 @@ static void rkmpp_flush(AVCodecContext *avctx)
     if (ret == MPP_OK) {
         decoder->first_packet = 1;
         decoder->eos_reached = 0;
+        av_packet_unref(&(decoder->pkt));
     } else
         av_log(avctx, AV_LOG_ERROR, "Failed to reset MPI (code = %d)\n", ret);
 }

@@ -43,6 +43,7 @@ typedef struct {
     AVBufferRef *frames_ref;
     AVBufferRef *device_ref;
     AVPacket pkt ;
+    int32_t input_max_packets;
 } RKMPPDecoder;
 
 typedef struct {
