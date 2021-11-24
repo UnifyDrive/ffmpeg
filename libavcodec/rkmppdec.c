@@ -426,7 +426,7 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
             decoder->input_max_packets = INPUT_MAX_PACKETS / 4;
         }
     }
-    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Timeout paramS64 = %lld.\n", __FUNCTION__, __LINE__, paramS64);
+    av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d]Timeout paramS64 = %lld, input_max_packets=%d.\n", __FUNCTION__, __LINE__, paramS64, decoder->input_max_packets);
     ret = decoder->mpi->control(decoder->ctx, MPP_SET_OUTPUT_BLOCK_TIMEOUT, &paramS64);
     if (ret != MPP_OK) {
         av_log(avctx, AV_LOG_ERROR, "Failed to set block timeout on MPI (code = %d).\n", ret);
