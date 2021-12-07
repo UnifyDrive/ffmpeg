@@ -44,6 +44,8 @@ typedef struct {
     AVBufferRef *device_ref;
     AVPacket pkt ;
     int32_t input_max_packets;
+    int64_t timeNow;
+    int64_t timeLast;
 } RKMPPDecoder;
 
 typedef struct {

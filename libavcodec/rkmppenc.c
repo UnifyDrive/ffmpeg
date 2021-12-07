@@ -974,7 +974,7 @@ static int rkmpp_get_packet(
             }
             encoder->timeNow = av_gettime_relative();
             timeCost = encoder->timeNow - encoder->timeLast;
-            if (timeCost > 30000) {
+            if (1 || timeCost > 30000) {
                 av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "[zspace] get avpacket costTime=%ld, duration=%ld, size:%d, pts=%ld dts=%ld %02x %02x %02x %02x %02x\n", timeCost, pkt->duration, pkt->size, pkt->pts, pkt->dts,
                         pkt->data[0], pkt->data[1], pkt->data[2], pkt->data[3], pkt->data[4]);
             }
