@@ -177,10 +177,14 @@ static int drm_device_create(AVHWDeviceContext *hwdev, const char *device,
         device = drm_dev;
     }
 
-    hwctx->fd = open(device, O_RDWR);
-    if (hwctx->fd < 0) {
-        av_log(hwdev, AV_LOG_ERROR, "Failed to open %s: probably not a DRM device?\n", device);
-        return AVERROR(errno);
+    if (1) {
+        hwctx->fd = open(device, O_RDWR);
+        if (hwctx->fd < 0) {
+            av_log(hwdev, AV_LOG_ERROR, "Failed to open %s: probably not a DRM device?\n", device);
+            return AVERROR(errno);
+        }
+    }else {
+        hwctx->fd = 10;
     }
 
     version = drmGetVersion(hwctx->fd);
@@ -376,8 +380,8 @@ static AVBufferRef *drm_pool_alloc(void *opaque, int size)
         goto fail;
     }
 
-    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] End Device_fd=%d create dumb<w,h,bpp: %d,%d,%d> size<%d> .\n", __FUNCTION__, __LINE__, 
-        hwctx->fd, dmcb.width, dmcb.height, dmcb.bpp, dmcb.size);
+    av_log(NULL, ZSPACE_HWDRM_DEBUG_LEVEL, "[zspace] [%s:%d] End Device_fd=%d create dumb<w,h,bpp: %d,%d,%d> size<%d>, handle_id=%d, buf_id=%d .\n", __FUNCTION__, __LINE__, 
+        hwctx->fd, dmcb.width, dmcb.height, dmcb.bpp, dmcb.size, dmcb.handle, desc->objects[0].fd);
     return ref;
 
 fail:

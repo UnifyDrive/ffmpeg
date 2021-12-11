@@ -45,7 +45,7 @@ static int rga_supported = -1;
 
 #define ZSPACE_DECODER_DEBUG 1
 #if ZSPACE_DECODER_DEBUG
-#define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_ERROR
+#define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_WARNING
 #else
 #define ZSPACE_DECODER_DEBUG_LEVEL AV_LOG_INFO
 #endif
@@ -387,14 +387,13 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
     if (avctx->pix_fmt == AV_PIX_FMT_NONE &&
         avctx->sw_pix_fmt == AV_PIX_FMT_NONE) {//vlc or mpv player.
         // chromium only support AV_PIX_FMT_NV12
-        avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        avctx->pix_fmt = avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
     } else {//ffmpeg cmd line
         if (avctx->pix_fmt == AV_PIX_FMT_NONE || avctx->pix_fmt == AV_PIX_FMT_YUV420P) {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }else if(avctx->pix_fmt == AV_PIX_FMT_YUV420P10LE){
             //avctx->pix_fmt = AV_PIX_FMT_P010BE;
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME_P010BE;
-            //avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }else {
             avctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         }
@@ -462,7 +461,7 @@ static int rkmpp_init_decoder(AVCodecContext *avctx)
 
     decoder->input_max_packets = INPUT_MAX_PACKETS;
     if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME || avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME_P010BE ) {
-        paramS64 = (RECEIVE_FRAME_TIMEOUT * 7) > 9?9:(RECEIVE_FRAME_TIMEOUT * 7);
+        paramS64 = (RECEIVE_FRAME_TIMEOUT * 3) > 30?30:(RECEIVE_FRAME_TIMEOUT * 3);
         if (avctx->width > 1920) {
             decoder->input_max_packets = INPUT_MAX_PACKETS / 4;
         }
@@ -593,7 +592,7 @@ static void rkmpp_release_frame(void *opaque, uint8_t *data)
 
     av_free(desc);
     //int ret = malloc_trim(0);
-    av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] .\n", __FUNCTION__, __LINE__);
+    //av_log(NULL, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] .\n", __FUNCTION__, __LINE__);
 }
 
 static void rkmpp_setinfo_avframe(AVFrame *frame, MppFrame mppframe) {
@@ -733,17 +732,17 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
                     goto fail;
                 }
                 rkmpp_setinfo_avframe(frame, mppframe);
-                time_now = av_gettime_relative();
+                //time_now = av_gettime_relative();
                 // Do pixel conversion, TODO: implement rga AVFilter
                 ret = rkmpp_data_mppframe_convertTo_avframe(rkmpp_mpp_format_to_rga_format(mppformat), buffer,
                     mpp_frame_get_hor_stride(mppframe),
                     mpp_frame_get_ver_stride(mppframe), frame);
-                av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] rkmpp_data_mppframe_convertTo_avframe costTime=%ld\n", av_gettime_relative()-time_now);
+                //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] rkmpp_data_mppframe_convertTo_avframe costTime=%ld\n", av_gettime_relative()-time_now);
                 goto fail; // alway release mpp resource
             }
             rkmpp_setinfo_avframe(frame, mppframe);
-            if(1) {
-                time_now = av_gettime_relative();
+            if(0) {
+                //time_now = av_gettime_relative();
                 av_hwframe_get_buffer(decoder->frames_ref, frame, 0);
                 desc = (AVDRMFrameDescriptor *)(frame->data[0]);
                 //mpp_buffer_inc_ref (buffer);
@@ -792,7 +791,7 @@ static int rkmpp_retrieve_frame(AVCodecContext *avctx, AVFrame *frame)
                 framecontext = (RKMPPFrameContext *)framecontextref->data;
                 framecontext->decoder_ref = av_buffer_ref(rk_context->decoder_ref);
                 framecontext->frame = mppframe;
-                av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] desc->objects[0].fd=%d decoder mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, desc->objects[0].fd, (void *)mppframe, (void *)frame);
+                //av_log(avctx, ZSPACE_DECODER_DEBUG_LEVEL, "[zspace] [%s:%d] desc->objects[0].fd=%d decoder mppframe(%p), frame(%p).\n", __FUNCTION__, __LINE__, desc->objects[0].fd, (void *)mppframe, (void *)frame);
 
                 frame->data[0]  = (uint8_t *)desc;
                 frame->buf[0]   = av_buffer_create((uint8_t *)desc, sizeof(*desc), rkmpp_release_frame,
