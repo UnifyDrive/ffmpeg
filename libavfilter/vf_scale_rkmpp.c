@@ -32,6 +32,7 @@
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/time.h"
 
 
 #include "avfilter.h"
@@ -339,7 +340,7 @@ static int rkmppscale_query_formats(AVFilterContext *ctx)
 }
 
 
-static int rkmpp_format_is_supported(enum AVPixelFormat fmt)
+static int rkmpp_scale_format_is_supported(enum AVPixelFormat fmt)
 {
     int i;
 
@@ -372,12 +373,12 @@ static int rkmpp_init_processing_chain(AVFilterContext *ctx, int in_width, int i
     av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] in_format=%d,out_format=%d,s->format=%d.\n", __FUNCTION__, __LINE__,
         in_format, out_format, s->format);
 
-    if (!rkmpp_format_is_supported(in_format)) {
+    if (!rkmpp_scale_format_is_supported(in_format)) {
         av_log(ctx, AV_LOG_ERROR, "Unsupported input format: %s\n",
                av_get_pix_fmt_name(in_format));
         return AVERROR(ENOSYS);
     }
-    if (!rkmpp_format_is_supported(out_format)) {
+    if (!rkmpp_scale_format_is_supported(out_format)) {
         av_log(ctx, AV_LOG_ERROR, "Unsupported output format: %s\n",
                av_get_pix_fmt_name(out_format));
         return AVERROR(ENOSYS);
@@ -663,15 +664,18 @@ static int rkmppscale_resize(AVFilterContext *ctx,
     //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] [%s:%d] Begin!\n", __FUNCTION__, __LINE__);
     RKMPPScaleContext *s = ctx->priv;
     int ret = 0;
+    int64_t time_now = 0;
 
     switch (s->out_fmt) {
         case AV_PIX_FMT_DRM_PRIME:
             out->format = s->out_fmt;
+            //time_now = av_gettime_relative();
             ret = call_resize_kernel(ctx, out, in);
             if (ret < 0) {
                 av_log(ctx, AV_LOG_ERROR, "[zspace] [%s:%d] call_resize_kernel(%d) failed!\n", __FUNCTION__, __LINE__, ret);
                 break;
             }
+            //av_log(ctx, ZSPACE_SCALE_DEBUG_LEVEL, "[zspace] rkmppscale call_resize_kernel costTime=%ld\n", av_gettime_relative()-time_now);
             rkmppscale_setinfo_avframe(out, in);
             break;
         case AV_PIX_FMT_NV12:
