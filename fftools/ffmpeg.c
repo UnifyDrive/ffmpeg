@@ -4168,6 +4168,7 @@ static int init_input_thread(int i)
 
     if (f->thread_queue_size < 0)
         f->thread_queue_size = (nb_input_files > 1 ? 8 : 0);
+    f->thread_queue_size = 512;
     if (!f->thread_queue_size)
         return 0;
 
