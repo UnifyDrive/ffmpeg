@@ -431,8 +431,8 @@ static int rkmppscale_config_props(AVFilterLink *outlink)
         ((int64_t)w * inlink->h) > INT_MAX)
         av_log(ctx, AV_LOG_ERROR, "Rescaled value for width or height is too big.\n");
 
-    outlink->w = w;
-    outlink->h = h;
+    outlink->w = MPP_ALIGN(w, 16);
+    outlink->h = MPP_ALIGN(h, 16);
 
     ret = rkmpp_init_processing_chain(ctx, inlink->w, inlink->h, w, h);
     if (ret < 0)

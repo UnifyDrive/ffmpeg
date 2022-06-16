@@ -269,8 +269,8 @@ static int rkmpp_get_encode_parameters(
 {
     int ret = 0;
 
-    encoder->width = avctx->width;
-    encoder->height = avctx->height;
+    encoder->width = (MPP_ALIGN(avctx->width, 16));
+    encoder->height = (MPP_ALIGN(avctx->height, 16));
     encoder->hor_stride = (MPP_ALIGN(avctx->width, 16));
     encoder->ver_stride = (MPP_ALIGN(avctx->height, 16));
     encoder->fmt = rkmpp_avpix_format_to_mpp_format(avctx, avctx->pix_fmt);
