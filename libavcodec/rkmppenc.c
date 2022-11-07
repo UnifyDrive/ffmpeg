@@ -385,7 +385,7 @@ static int rkmpp_setup_encode_parameters(
     mpp_enc_cfg_set_s32(cfg, "rc:fps_out_flex", encoder->fps_out_flex);
     mpp_enc_cfg_set_s32(cfg, "rc:fps_out_num", encoder->fps_out_num);
     mpp_enc_cfg_set_s32(cfg, "rc:fps_out_denorm", encoder->fps_out_den);
-    mpp_enc_cfg_set_s32(cfg, "rc:gop", encoder->gop_len ? encoder->gop_len : encoder->fps_out_num * 2);
+    mpp_enc_cfg_set_s32(cfg, "rc:gop", encoder->gop_len ? encoder->gop_len : encoder->fps_out_num * 3);
 
     /* drop frame or not when bitrate overflow */
     mpp_enc_cfg_set_u32(cfg, "rc:drop_mode", MPP_ENC_RC_DROP_FRM_DISABLED);
@@ -1015,7 +1015,8 @@ static int rkmpp_get_packet(
             }
 
             //av_log(avctx, ZSPACE_ENCODER_DEBUG_LEVEL, "%p %s\n", ctx, log_buf);
-
+	   if(pkt->data[0] == 0x0 && pkt->data[1] == 0x0 && pkt->data[2] == 0x0 && pkt->data[3] == 1 && pkt->data[4] == 0x06)
+		pkt->flags = AV_PKT_FLAG_KEY;
 
             encoder->stream_size += len;
             encoder->frame_count += eoi;
