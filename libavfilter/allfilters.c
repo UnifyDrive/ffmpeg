@@ -437,6 +437,7 @@ extern AVFilter ff_vf_transpose;
 extern AVFilter ff_vf_transpose_npp;
 extern AVFilter ff_vf_transpose_opencl;
 extern AVFilter ff_vf_transpose_vaapi;
+extern AVFilter ff_vf_transpose_rkmpp;
 extern AVFilter ff_vf_trim;
 extern AVFilter ff_vf_unpremultiply;
 extern AVFilter ff_vf_unsharp;
