@@ -19,7 +19,7 @@
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-
+#include <string.h>
 #include <libbluray/bluray.h>
 
 #include "libavutil/avstring.h"
@@ -39,6 +39,8 @@ typedef struct {
     int angle;
     int chapter;
     /*int region;*/
+    BLURAY_TITLE_INFO      *p_pl_info;
+    const BLURAY_CLIP_INFO *p_clip_info;
 } BlurayContext;
 
 #define OFFSET(x) offsetof(BlurayContext, x)
@@ -104,6 +106,18 @@ static int check_disc_info(URLContext *h)
 static int bluray_close(URLContext *h)
 {
     BlurayContext *bd = h->priv_data;
+
+    if (bd->p_pl_info) {
+        bd_free_title_info(bd->p_pl_info);
+        bd->p_pl_info = NULL;
+        bd->p_clip_info = NULL;
+    }
+
+    if (h->lang_info) {
+        free(h->lang_info);
+        h->audio_nbstreams = h->sub_nbstreams = 0;
+    }
+
     if (bd->bd) {
         bd_close(bd->bd);
     }
@@ -145,6 +159,8 @@ static int bluray_open(URLContext *h, const char *path, int flags)
         return AVERROR(EIO);
     }
 
+    bd->p_pl_info = bd->p_clip_info = NULL;
+
     /* if playlist was not given, select longest playlist */
     if (bd->playlist < 0) {
         uint64_t duration = 0;
@@ -158,9 +174,15 @@ static int bluray_open(URLContext *h, const char *path, int flags)
                    ((int)(info->duration / 90000) % 3600) / 60,
                    ((int)(info->duration / 90000) % 60));
 
-            if (info->duration > duration) {
+            if (info->duration >= duration) {
                 bd->playlist = info->playlist;
                 duration = info->duration;
+                if (bd->p_pl_info) {
+                    bd_free_title_info(bd->p_pl_info);
+                    bd->p_pl_info = NULL;
+                }
+                bd->p_pl_info = info;
+                continue;
             }
 
             bd_free_title_info(info);
@@ -182,6 +204,43 @@ static int bluray_open(URLContext *h, const char *path, int flags)
     /* select chapter */
     if (bd->chapter > 1) {
         bd_seek_chapter(bd->bd, bd->chapter - 1);
+    }
+
+    if (bd->p_pl_info && bd->p_pl_info->clip_count) {
+        bd->p_clip_info = &bd->p_pl_info->clips[0];
+        BLURAY_STREAM_INFO * p_streams = NULL;
+        int size_tmp = 0;
+        h->audio_nbstreams = bd->p_clip_info->audio_stream_count;
+        h->sub_nbstreams = bd->p_clip_info->pg_stream_count;
+        h->lang_info = (struct LanguageInfo *)malloc(sizeof(struct LanguageInfo) * (h->audio_nbstreams + h->sub_nbstreams));
+        if (h->lang_info == NULL) {
+            h->audio_nbstreams = h->sub_nbstreams = 0;
+            av_log(h, AV_LOG_INFO, " Malloc LanguageInfo failed! \n");
+            return 0;
+        }
+        av_log(h, AV_LOG_INFO, "bd->p_clip_info->audio_stream_count=%d \n", bd->p_clip_info->audio_stream_count);
+        p_streams = bd->p_clip_info->audio_streams;
+        for (int i = 0; i < bd->p_clip_info->audio_stream_count; i++) {
+            memset(h->lang_info[i].language, 0x0, 4);
+            size_tmp = strlen((const char *)p_streams[i].lang);
+            if (size_tmp > 3)
+                size_tmp = 3;
+            memcpy(h->lang_info[i].language, (const char *)p_streams[i].lang, size_tmp);
+            h->lang_info[i].type = AVMEDIA_TYPE_AUDIO;
+            av_log(h, AV_LOG_INFO, " [%d]audio lang=[%s] \n", i, h->lang_info[i].language);
+        }
+
+        av_log(h, AV_LOG_INFO, "bd->p_clip_info->pg_stream_count=%d \n", bd->p_clip_info->pg_stream_count);
+        p_streams = bd->p_clip_info->pg_streams;
+        for (int i = 0; i < bd->p_clip_info->pg_stream_count; i++) {
+            memset(h->lang_info[i+h->audio_nbstreams].language, 0x0, 4);
+            size_tmp = strlen((const char *)p_streams[i].lang);
+            if (size_tmp > 3)
+                size_tmp = 3;
+            memcpy(h->lang_info[i+h->audio_nbstreams].language, (const char *)p_streams[i].lang, size_tmp);
+            h->lang_info[i+h->audio_nbstreams].type = AVMEDIA_TYPE_SUBTITLE;
+            av_log(h, AV_LOG_INFO, " [%d]subtitle lang=[%s] \n", i, h->lang_info[i+h->audio_nbstreams].language);
+        }
     }
 
     return 0;

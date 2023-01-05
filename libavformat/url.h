@@ -29,11 +29,18 @@
 
 #include "libavutil/dict.h"
 #include "libavutil/log.h"
+#include "libavutil/avutil.h"
 
 #define URL_PROTOCOL_FLAG_NESTED_SCHEME 1 /*< The protocol name can be the first part of a nested protocol scheme */
 #define URL_PROTOCOL_FLAG_NETWORK       2 /*< The protocol uses network */
 
 extern const AVClass ffurl_context_class;
+
+typedef struct LanguageInfo {
+    enum AVMediaType type;
+    const char language[4];
+} LanguageInfo;
+
 
 typedef struct URLContext {
     const AVClass *av_class;    /**< information for av_log(). Set by url_open(). */
@@ -49,6 +56,9 @@ typedef struct URLContext {
     const char *protocol_whitelist;
     const char *protocol_blacklist;
     int min_packet_size;        /**< if non zero, the stream is packetized with this min packet size */
+    struct LanguageInfo *lang_info;
+    int audio_nbstreams;
+    int sub_nbstreams;
 } URLContext;
 
 typedef struct URLProtocol {

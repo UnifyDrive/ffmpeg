@@ -33,6 +33,7 @@
 #include "libavcodec/bytestream.h"
 #include "libavcodec/get_bits.h"
 #include "libavcodec/opus.h"
+#include "libavformat/url.h"
 #include "avformat.h"
 #include "mpegts.h"
 #include "internal.h"
@@ -123,6 +124,8 @@ struct Program {
 
     /** have we found pmt for this program */
     int pmt_found;
+    unsigned int nb_videostreams;
+    unsigned int nb_audiostreams;
 };
 
 struct MpegTSContext {
@@ -301,6 +304,8 @@ static void clear_program(struct Program *p)
     p->nb_pids = 0;
     p->nb_streams = 0;
     p->pmt_found = 0;
+    p->nb_videostreams = 0;
+    p->nb_audiostreams = 0;
 }
 
 static void clear_programs(MpegTSContext *ts)
@@ -2453,6 +2458,21 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
             prg->streams[i].idx = st->index;
             prg->streams[i].stream_identifier = stream_identifier;
             prg->nb_streams++;
+
+            AVIOContext *pb = ts->stream->pb;
+            URLContext *url_ctx = (URLContext *)pb->opaque;
+
+            if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                prg->nb_videostreams++;
+            }else if (strcmp(url_ctx->prot->name, "bluray") == 0 && st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+                prg->nb_audiostreams++;
+                av_dict_set(&(st->metadata), "language", url_ctx->lang_info[prg->nb_streams-prg->nb_videostreams-1].language, 0);
+                av_log(ts->stream, AV_LOG_INFO, "Found streams = [%d,%d,%d], set bluray audio languge= [%s]\n", prg->nb_streams, prg->nb_videostreams, url_ctx->audio_nbstreams, url_ctx->lang_info[prg->nb_streams-prg->nb_videostreams-1].language);
+            }else if (strcmp(url_ctx->prot->name, "bluray") == 0 && st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+                int audio_diff = prg->nb_audiostreams - url_ctx->audio_nbstreams;
+                av_dict_set(&(st->metadata), "language", url_ctx->lang_info[prg->nb_streams-prg->nb_videostreams-audio_diff-1].language, 0);
+                av_log(ts->stream, AV_LOG_INFO, "Found streams = [%d,%d,%d,%d], set bluray sub languge= [%s]\n", prg->nb_streams, prg->nb_videostreams, url_ctx->audio_nbstreams, audio_diff, url_ctx->lang_info[prg->nb_streams-prg->nb_videostreams-audio_diff-1].language);
+            }
         }
 
         av_program_add_stream_index(ts->stream, h->id, st->index);
@@ -2469,7 +2489,6 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
                                           desc_list_end, mp4_descr,
                                           mp4_descr_count, pid, ts) < 0)
                 break;
-
             if (pes && prog_reg_desc == AV_RL32("HDMV") &&
                 stream_type == 0x83 && pes->sub_st) {
                 av_program_add_stream_index(ts->stream, h->id,
