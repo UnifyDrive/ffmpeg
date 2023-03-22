@@ -258,6 +258,7 @@ typedef struct HLSContext {
     char *headers;
     int has_default_key; /* has DEFAULT field of var_stream_map */
     int has_video_m3u8; /* has video stream m3u8 list */
+    int m2ts_mode;
 } HLSContext;
 
 static int strftime_expand(const char *fmt, char **dest)
@@ -882,10 +883,7 @@ static int hls_mux_init(AVFormatContext *s, VariantStream *vs)
     for (i = 0; i < vs->nb_streams; i++) {
         AVStream *st;
         AVFormatContext *loc;
-        if (vs->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE)
-            loc = vtt_oc;
-        else
-            loc = oc;
+        loc = oc;
 
         if (!(st = avformat_new_stream(loc, NULL)))
             return AVERROR(ENOMEM);
@@ -944,6 +942,7 @@ static int hls_mux_init(AVFormatContext *s, VariantStream *vs)
         snprintf(period, sizeof(period), "%d", (INT_MAX / 2) - 1);
         av_dict_set(&options, "sdt_period", period, AV_DICT_DONT_OVERWRITE);
         av_dict_set(&options, "pat_period", period, AV_DICT_DONT_OVERWRITE);
+        av_dict_set_int(&options, "mpegts_m2ts_mode", hls->m2ts_mode, 0);
     }
     ret = avformat_init_output(oc, &options);
     remaining_options = av_dict_count(options);
@@ -2333,7 +2332,7 @@ static int hls_write_header(AVFormatContext *s)
                 }
             }
 
-            if (outer_st->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE)
+            if (1||outer_st->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE)
                 inner_st = vs->avf->streams[j];
             else if (vs->vtt_avf)
                 inner_st = vs->vtt_avf->streams[0];
@@ -2434,13 +2433,8 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
         vs = &hls->var_streams[i];
         for (j = 0; j < vs->nb_streams; j++) {
             if (vs->streams[j] == st) {
-                if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-                    oc = vs->vtt_avf;
-                    stream_index = 0;
-                } else {
-                    oc = vs->avf;
-                    stream_index = j;
-                }
+                oc = vs->avf;
+                stream_index = j;
                 break;
             }
         }
@@ -2975,7 +2969,6 @@ static int hls_init(AVFormatContext *s)
             if ((vs->has_video == 1) && (vs->streams[j]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)) {
                 vs->reference_stream_index = vs->streams[j]->index;
             }
-            vs->has_subtitle += vs->streams[j]->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE;
         }
 
         if (vs->has_video > 1)
@@ -3180,6 +3173,7 @@ static const AVOption options[] = {
     {"timeout", "set timeout for socket I/O operations", OFFSET(timeout), AV_OPT_TYPE_DURATION, { .i64 = -1 }, -1, INT_MAX, .flags = E },
     {"ignore_io_errors", "Ignore IO errors for stable long-duration runs with network output", OFFSET(ignore_io_errors), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, E },
     {"headers", "set custom HTTP headers, can override built in default headers", OFFSET(headers), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, E },
+    {"hls_m2ts_mode", "Enable m2ts mode.", OFFSET(m2ts_mode), AV_OPT_TYPE_BOOL, { .i64 = -1 }, -1, 1, E },
     { NULL },
 };
 
@@ -3198,7 +3192,6 @@ AVOutputFormat ff_hls_muxer = {
     .priv_data_size = sizeof(HLSContext),
     .audio_codec    = AV_CODEC_ID_AAC,
     .video_codec    = AV_CODEC_ID_H264,
-    .subtitle_codec = AV_CODEC_ID_WEBVTT,
     .flags          = AVFMT_NOFILE | AVFMT_GLOBALHEADER | AVFMT_ALLOW_FLUSH | AVFMT_NODIMENSIONS,
     .init           = hls_init,
     .write_header   = hls_write_header,
