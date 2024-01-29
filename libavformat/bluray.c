@@ -28,7 +28,7 @@
 #include "libavutil/opt.h"
 
 #define BLURAY_PROTO_PREFIX     "bluray:"
-#define MIN_PLAYLIST_LENGTH     180     /* 3 min */
+#define MIN_PLAYLIST_LENGTH     60     /* 3 min */
 
 typedef struct {
     const AVClass *class;
@@ -164,7 +164,9 @@ static int bluray_open(URLContext *h, const char *path, int flags)
     /* if playlist was not given, select longest playlist */
     if (bd->playlist < 0) {
         uint64_t duration = 0;
-        int i;
+        int i = 0;
+        uint32_t i_main_playlist = bd_get_main_title(bd->bd);
+        av_log(h, AV_LOG_INFO, "Get main title index:%d\n", i_main_playlist);
         for (i = 0; i < num_title_idx; i++) {
             BLURAY_TITLE_INFO *info = bd_get_title_info(bd->bd, i, 0);
 
@@ -174,7 +176,8 @@ static int bluray_open(URLContext *h, const char *path, int flags)
                    ((int)(info->duration / 90000) % 3600) / 60,
                    ((int)(info->duration / 90000) % 60));
 
-            if (info->duration >= duration) {
+            //if (info->duration >= duration) {
+            if (i == i_main_playlist) {
                 bd->playlist = info->playlist;
                 duration = info->duration;
                 if (bd->p_pl_info) {
@@ -187,7 +190,7 @@ static int bluray_open(URLContext *h, const char *path, int flags)
 
             bd_free_title_info(info);
         }
-        av_log(h, AV_LOG_INFO, "selected %05d.mpls\n", bd->playlist);
+        av_log(h, AV_LOG_INFO, "selected [%05d.mpls]\n", bd->playlist);
     }
 
     /* select playlist */
