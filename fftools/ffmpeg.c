@@ -126,6 +126,8 @@ typedef struct BenchmarkTimeStamps {
     int64_t sys_usec;
 } BenchmarkTimeStamps;
 
+static int64_t       zspace_dts = -1;
+
 static void do_video_stats(OutputStream *ost, int frame_size);
 static BenchmarkTimeStamps get_benchmark_time_stamps(void);
 static int64_t getmaxrss(void);
@@ -4439,8 +4441,8 @@ static int process_input(int file_index)
             exit_program(1);
     }
 
-    if (debug_ts) {
-        av_log(NULL, AV_LOG_INFO, "demuxer -> ist_index:%d type:%s "
+    if (debug_ts || 0) {
+        av_log(NULL, AV_LOG_WARNING, "demuxer -> ist_index:%d type:%s "
                "next_dts:%s next_dts_time:%s next_pts:%s next_pts_time:%s pkt_pts:%s pkt_pts_time:%s pkt_dts:%s pkt_dts_time:%s off:%s off_time:%s\n",
                ifile->ist_index + pkt->stream_index, av_get_media_type_string(ist->dec_ctx->codec_type),
                av_ts2str(ist->next_dts), av_ts2timestr(ist->next_dts, &AV_TIME_BASE_Q),
@@ -4451,6 +4453,10 @@ static int process_input(int file_index)
                av_ts2timestr(input_files[ist->file_index]->ts_offset, &AV_TIME_BASE_Q));
     }
 
+    if(zspace_dts == -1 && pkt && pkt->pts != AV_NOPTS_VALUE) {
+        input_files[ist->file_index]->ts_offset = -(pkt->pts * av_q2d(ist->st->time_base)* AV_TIME_BASE);
+        zspace_dts = 0;
+    }
     if(!ist->wrap_correction_done && is->start_time != AV_NOPTS_VALUE && ist->st->pts_wrap_bits < 64){
         int64_t stime, stime2;
         // Correcting starttime based on the enabled streams
@@ -4596,8 +4602,8 @@ static int process_input(int file_index)
     if (pkt->dts != AV_NOPTS_VALUE)
         ifile->last_ts = av_rescale_q(pkt->dts, ist->st->time_base, AV_TIME_BASE_Q);
 
-    if (debug_ts) {
-        av_log(NULL, AV_LOG_INFO, "demuxer+ffmpeg -> ist_index:%d type:%s pkt_pts:%s pkt_pts_time:%s pkt_dts:%s pkt_dts_time:%s off:%s off_time:%s\n",
+    if (debug_ts || 0) {
+        av_log(NULL, AV_LOG_WARNING, "demuxer+ffmpeg -> ist_index:%d type:%s pkt_pts:%s pkt_pts_time:%s pkt_dts:%s pkt_dts_time:%s off:%s off_time:%s\n",
                ifile->ist_index + pkt->stream_index, av_get_media_type_string(ist->dec_ctx->codec_type),
                av_ts2str(pkt->pts), av_ts2timestr(pkt->pts, &ist->st->time_base),
                av_ts2str(pkt->dts), av_ts2timestr(pkt->dts, &ist->st->time_base),
@@ -4961,6 +4967,7 @@ int main(int argc, char **argv)
     BenchmarkTimeStamps ti;
 
     init_dynload();
+    zspace_dts = -1;
 
     register_exit(ffmpeg_cleanup);
 
